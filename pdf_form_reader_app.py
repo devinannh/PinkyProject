@@ -1,5 +1,5 @@
 """
-PDF Form Reader - the desktop app.
+Pinky - Form Reader: the desktop app.
 
 The same reader as pdf_form_reader.py, with a window styled like GalloScript
 (egallo8/YesLaw): an HTML page (ui/) shown in a native window by pywebview,
@@ -11,11 +11,11 @@ directly.
 Runs only on this computer; nothing is sent anywhere.
 
 Settings are remembered between uses in a small text file:
-  Windows: %LOCALAPPDATA%\\PDF Form Reader\\settings.txt
-  other:   ~/.pdf-form-reader/settings.txt
+  Windows: %LOCALAPPDATA%\\Pinky\\settings.txt
+  other:   ~/.pinky/settings.txt
 It holds folder paths and file names only, never anything read from a PDF.
 
-`PDF Form Reader.exe --selftest` checks that a built copy carries its page
+`Pinky.exe --selftest` checks that a built copy carries its page
 and can read a PDF; the build runs it before offering the .exe for download.
 """
 
@@ -29,7 +29,8 @@ from pathlib import Path
 
 import pdf_form_reader as core
 
-APP_NAME = "PDF Form Reader"
+APP_NAME = "Pinky"
+WINDOW_TITLE = "Pinky - Form Reader"
 
 WINDOW = {"width": 1180, "height": 780, "min_size": (980, 640)}
 
@@ -49,7 +50,7 @@ def settings_path() -> Path:
     local = os.environ.get("LOCALAPPDATA")
     if local:
         return Path(local) / APP_NAME / "settings.txt"
-    return Path.home() / ".pdf-form-reader" / "settings.txt"
+    return Path.home() / ".pinky" / "settings.txt"
 
 
 def default_results_parent() -> str:
@@ -57,8 +58,9 @@ def default_results_parent() -> str:
     return str(docs if docs.is_dir() else Path.home())
 
 
-def _settings_from(data: dict) -> core.Settings:
-    """Settings from what the page sends, checked rather than trusted."""
+def _settings_from(data: dict, strict: bool = False) -> core.Settings:
+    """Settings from what the page sends, checked rather than trusted.
+    strict: a file type that is not one raises ValueError instead of being dropped."""
     def pick(key, allowed, default):
         value = str(data.get(key) or "")
         return value if value in allowed else default
@@ -69,7 +71,15 @@ def _settings_from(data: dict) -> core.Settings:
         if name and name.casefold() not in seen:
             seen.add(name.casefold())
             names.append(name)
+    types = []
+    for raw in data.get("types") or []:
+        try:
+            types.extend(core.clean_types([raw]))
+        except ValueError:
+            if strict:
+                raise
     return core.Settings(
+        types=list(dict.fromkeys(types)),
         folder=str(data.get("folder") or "").strip().strip('"'),
         start=pick("start", {"year", "month", "job"}, "year"),
         look_in=pick("look_in", {"main", "all"}, "main"),
@@ -82,7 +92,7 @@ def _settings_from(data: dict) -> core.Settings:
 
 def _as_dict(s: core.Settings) -> dict:
     return {"folder": s.folder, "start": s.start, "look_in": s.look_in, "zips": s.zips,
-            "names": list(s.names), "match": s.match, "out": s.out}
+            "names": list(s.names), "match": s.match, "out": s.out, "types": list(s.types)}
 
 
 class Api:
@@ -139,7 +149,10 @@ class Api:
     def start(self, data: dict) -> dict:
         if self._worker and self._worker.is_alive():
             return {"ok": False, "error": "Already reading."}
-        settings = _settings_from(data)
+        try:
+            settings = _settings_from(data, strict=True)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
         if not settings.folder:
             return {"ok": False, "error": "Choose the folder to read first (step 1)."}
         root = Path(settings.folder).expanduser()
@@ -185,6 +198,7 @@ class Api:
                     "counts": dict(report.counts),
                     "lines": core.summary_lines(report, settings),
                     "main_only": settings.look_in == "main",
+                    "types": [t.upper() for t in settings.types],
                     "results": str(out_dir),
                     "can_open": hasattr(os, "startfile"),
                     "files_read": self._state.get("files_read", 0),
@@ -198,6 +212,16 @@ class Api:
     def status(self) -> dict:
         with self._lock:
             return dict(self._state)
+
+    def check_type(self, raw: str) -> dict:
+        """For the page's Add button: the tidy type, or why it is not one."""
+        try:
+            t = core.normal_type(raw)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        if t == "pdf":
+            return {"ok": False, "error": "PDFs are always read."}
+        return {"ok": True, "type": t}
 
     def stop(self) -> bool:
         self._stop.set()
@@ -355,7 +379,7 @@ def selftest() -> int:
                 problems.append(f"run did not read the PDF: {st}")
 
     if problems:
-        with open(Path(tempfile.gettempdir()) / "pdf-form-reader-selftest.txt", "w") as fh:
+        with open(Path(tempfile.gettempdir()) / "pinky-selftest.txt", "w") as fh:
             fh.write("\n".join(problems))
         print("\n".join(problems))
     return 1 if problems else 0
@@ -368,10 +392,10 @@ def main():
     import webview
 
     api = Api()
-    window = webview.create_window(APP_NAME, str(ui_dir() / "index.html"), js_api=api,
+    window = webview.create_window(WINDOW_TITLE, str(ui_dir() / "index.html"), js_api=api,
                                    background_color="#D9D9DB", **WINDOW)
     api._window = window
-    window.events.shown += lambda: paint_title_bar(APP_NAME)
+    window.events.shown += lambda: paint_title_bar(WINDOW_TITLE)
     webview.start()
 
 

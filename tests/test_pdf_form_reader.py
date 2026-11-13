@@ -346,6 +346,82 @@ class ChoosingWhatToRead(unittest.TestCase):
         self.assertEqual(s.names, ["worksheet"])
 
 
+class OtherFileTypes(unittest.TestCase):
+    """Optional extra file types: found and listed, never opened."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name)
+        self.root = base / "2026"
+        job = self.root / "March" / "Job 140205"
+        job.mkdir(parents=True)
+        (job / "Worksheet.pdf").write_bytes(fillable_form(True))
+        (job / "Worksheet.docx").write_bytes(b"not really word")
+        (job / "Worksheet.wpd").write_bytes(b"not really wordperfect")
+        (job / "Notes.txt").write_text("x")
+        (job / "bundle.zip").write_bytes(zipped({"Worksheet.DOCX": b"x", "other.pdf": fillable_form(True)}))
+        self.out = base / "results"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def files(self, *args):
+        self.assertEqual(reader.main([str(self.root), "--out", str(self.out), "--quiet", *args]), 0)
+        with open(self.out / "files.csv", encoding="utf-8-sig") as fh:
+            return {r["File"]: r for r in csv.DictReader(fh)}
+
+    def test_pdf_only_by_default(self):
+        self.assertEqual(sorted(self.files("--name", "worksheet")), ["March/Job 140205/Worksheet.pdf"])
+
+    def test_extra_types_are_listed_not_read(self):
+        got = self.files("--name", "worksheet", "--type", "docx", "--type", ".WPD", "--zips", "yes")
+        self.assertEqual(sorted(got), [
+            "March/Job 140205/Worksheet.docx",
+            "March/Job 140205/Worksheet.pdf",
+            "March/Job 140205/Worksheet.wpd",
+            "March/Job 140205/bundle.zip > Worksheet.DOCX",
+        ])
+        docx = got["March/Job 140205/Worksheet.docx"]
+        self.assertEqual((docx["File type"], docx["Result"], docx["Fields"]), ("DOCX", reader.RESULT_FOUND, "0"))
+        self.assertEqual(got["March/Job 140205/Worksheet.pdf"]["Result"], reader.RESULT_READ)
+
+    def test_extra_types_are_never_opened(self):
+        import builtins
+        from unittest import mock
+        opened = []
+        real_open = builtins.open
+
+        def spy(path, *a, **k):
+            opened.append(str(path))
+            return real_open(path, *a, **k)
+
+        with mock.patch("builtins.open", spy):
+            self.files("--type", "docx", "--type", "wpd", "--type", "txt")
+        self.assertFalse([p for p in opened if p.lower().endswith((".docx", ".wpd", ".txt"))], opened)
+
+    def test_a_name_with_an_ending_matches_only_that_type(self):
+        got = self.files("--name", "worksheet.docx", "--match", "complete", "--type", "docx", "--type", "wpd")
+        self.assertEqual(sorted(got), ["March/Job 140205/Worksheet.docx"])
+
+    def test_type_spellings_and_refusals(self):
+        self.assertEqual(reader.clean_types(["*.DOCX", ".docx", "pdf", " wpd ", ""]), ["docx", "wpd"])
+        for bad in ("zip", "word doc", "x" * 11, "."):
+            with self.assertRaises(ValueError):
+                reader.clean_types([bad])
+        self.assertEqual(reader.main([str(self.root), "--out", str(self.out), "--quiet", "--type", "zip"]), 2)
+
+    def test_settings_file_round_trip(self):
+        path = Path(self.tmp.name) / "s.txt"
+        path.write_text(f"Folder to read: {self.root}\nOther file types: docx; .wpd, txt\n")
+        settings = reader.load_settings(path)
+        self.assertEqual(settings.types, ["docx", "wpd", "txt"])
+        reader.save_settings(settings, path)
+        self.assertEqual(reader.load_settings(path).types, ["docx", "wpd", "txt"])
+        path.write_text("Other file types: zip\n")
+        with self.assertRaises(reader.SettingsError):
+            reader.load_settings(path)
+
+
 class SavedSettings(unittest.TestCase):
     def test_save_and_load_give_back_the_same_settings(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -447,6 +523,18 @@ class AppBehindThePage(unittest.TestCase):
         st = self.api.status()
         self.assertEqual(st["state"], "stopped")
         self.assertEqual(st["counts"]["pdfs"], 0)
+
+    def test_file_types_from_the_page(self):
+        self.assertEqual(self.api.check_type("*.DOCX"), {"ok": True, "type": "docx"})
+        self.assertFalse(self.api.check_type("pdf")["ok"])
+        self.assertIn("zip", self.api.check_type("zip")["error"])
+        answer = self.api.start({**self.page, "types": ["docx", "not a type"]})
+        self.assertFalse(answer["ok"])
+        (self.base / "2026" / "March" / "Job 140205" / "Smith Worksheet.docx").write_bytes(b"x")
+        self.assertEqual(self.api.start({**self.page, "types": ["docx"]}), {"ok": True})
+        st = self.api.wait(30)
+        self.assertEqual((st["counts"]["pdfs"], st["counts"]["other_found"], st["types"]), (1, 1, ["DOCX"]))
+        self.assertEqual(self.api.load()["types"], ["docx"])
 
     def test_the_built_app_self_check(self):
         try:

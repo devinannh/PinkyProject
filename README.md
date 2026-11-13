@@ -1,4 +1,4 @@
-# PDF form reader
+# Pinky - Form Reader
 
 Lists every fillable field in the PDFs you choose (by file name and by
 where they sit in the job folders): text boxes, checkboxes, toggles, radio
@@ -19,9 +19,9 @@ which portal fields.
 
 1. On GitHub, open this project, then the **Actions** tab.
 2. Click the newest **Build Windows app** run with a green tick.
-3. Under **Artifacts** at the bottom, click **PDF-Form-Reader-for-Windows**.
+3. Under **Artifacts** at the bottom, click **Pinky-for-Windows**.
    A zip downloads.
-4. Open the zip and drag **PDF Form Reader.exe** to your Desktop (or any
+4. Open the zip and drag **Pinky.exe** to your Desktop (or any
    folder on your computer). There is nothing to install.
 
 **The first time you open it, Windows may warn you.** The app is not signed
@@ -46,6 +46,11 @@ setting.
    name shows as a tag; click its **×** to remove it. Choose **Partial** (the
    file name contains it) or **Complete** (the file name is exactly it); the
    grey box under it shows an example of what your choice finds.
+   **File types** (optional): Pinky always reads PDF forms. To also *find*
+   other kinds of files (Word, WordPerfect, text, ...), type the ending, such
+   as `docx`, and press Enter. Those files are listed in files.csv by name
+   and folder, with their type; they are never opened or read. A file name
+   written with an ending, like `worksheet.docx`, finds only that type.
 4. **Save results in**: pick a folder on this computer. A new dated folder is
    made inside it each time, so earlier results are never overwritten.
 5. Press **Read PDFs** at the bottom. **Stop** halts after the current file.
@@ -53,7 +58,7 @@ setting.
    shows the spreadsheets.
 
 The app remembers your choices for next time. It keeps them in
-`%LOCALAPPDATA%\PDF Form Reader\settings.txt`, which holds folder paths and
+`%LOCALAPPDATA%\Pinky\settings.txt`, which holds folder paths and
 file names only, never anything read from a PDF.
 
 The window is drawn by Microsoft Edge WebView2, which comes with Windows 10
@@ -68,7 +73,7 @@ With the name `worksheet`:
 | `Smith Worksheet FINAL.pdf` | found | not found |
 | `Notice of Deposition.pdf` | not found | not found |
 
-Capital letters, extra spaces and the `.pdf` ending never matter.
+Capital letters, extra spaces and the file's ending (`.pdf`, `.docx`) never matter.
 
 ## What you get
 

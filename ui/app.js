@@ -1,4 +1,4 @@
-/* PDF Form Reader - the page's behaviour.
+/* Pinky - Form Reader: the page's behaviour.
 
    Everything it does goes through window.pywebview.api (pdf_form_reader_app.py,
    class Api): this page never touches a file itself and makes no network
@@ -8,6 +8,7 @@
 const $ = (id) => document.getElementById(id);
 let api = null;
 let names = [];
+let types = [];
 let polling = null;
 let saveTimer = null;
 
@@ -46,6 +47,7 @@ function current() {
     look_in: radio("look_in"),
     zips: $("zips").checked,
     names: names.slice(),
+    types: types.slice(),
     match: radio("match"),
     out: $("out").value.trim(),
   };
@@ -56,9 +58,11 @@ function fill(s) {
   setRadio("look_in", s.look_in || "main");
   $("zips").checked = !!s.zips;
   names = (s.names || []).slice();
+  types = (s.types || []).slice();
   setRadio("match", s.match || "partial");
   $("out").value = s.out || "";
   drawNames();
+  drawTypes();
   drawExample();
 }
 function remember() {
@@ -71,7 +75,7 @@ function drawNames() {
   const box = $("names");
   box.replaceChildren();
   if (!names.length) {
-    box.append(el("span", { class: "empty" }, "No names: every PDF will be read."));
+    box.append(el("span", { class: "empty" }, "No names: every file will be looked at."));
     return;
   }
   names.forEach((n, i) => {
@@ -87,6 +91,36 @@ function addName() {
   $("new-name").value = "";
   drawNames(); drawExample(); remember();
 }
+/* ------------------------------------------------------------ file types */
+const TYPE_NOTE = "Pinky always reads PDF forms. Other types you add are found and listed in files.csv by name and folder; they are not opened or read.";
+function drawTypes() {
+  const box = $("types");
+  box.replaceChildren(el("span", { class: "chip locked", title: "PDF forms are always read" },
+    "PDF", el("span", { class: "lock-note" }, "always read")));
+  types.forEach((t, i) => {
+    const label = t.toUpperCase();
+    const x = el("button", { type: "button", title: "Remove " + label, "aria-label": "Remove " + label }, "\u00d7");
+    x.addEventListener("click", () => { types.splice(i, 1); drawTypes(); remember(); });
+    box.append(el("span", { class: "chip" }, label, x));
+  });
+}
+function typeNote(text, isError) {
+  const note = $("type-note");
+  note.className = isError ? "type-error" : "muted";
+  note.textContent = text;
+}
+async function addType() {
+  const typed = $("new-type").value.trim();
+  if (!typed) return true;
+  const answer = await api.check_type(typed);
+  if (!answer.ok) { typeNote(answer.error, true); return false; }
+  if (!types.includes(answer.type)) types.push(answer.type);
+  $("new-type").value = "";
+  typeNote(TYPE_NOTE, false);
+  drawTypes(); remember();
+  return true;
+}
+
 function drawExample() {
   const word = names[0] || "worksheet";
   const cap = word.replace(/\.pdf$/i, "");
@@ -100,7 +134,7 @@ function drawExample() {
     box.append("With ", el("b", {}, "Partial"), `, “${word}” finds `,
       el("b", {}, `${title}.pdf`), " and ", el("b", {}, `Smith ${title} FINAL.pdf`), ".");
   }
-  box.append(el("br"), "Capital letters, extra spaces and “.pdf” never matter.");
+  box.append(el("br"), "Capital letters, extra spaces and the file’s ending (.pdf, .docx) never matter.");
 }
 
 /* ------------------------------------------------------------ results */
@@ -135,13 +169,15 @@ function drawDone(st) {
   const lines = el("ul", { class: "lines" },
     el("li", {}, "Passed over: name did not match", el("b", {}, c.name_skipped)),
     el("li", {}, "Passed over: outside any job folder", el("b", {}, c.place_skipped)));
+  if (st.types && st.types.length) lines.prepend(el("li", {},
+    `Other files found (${st.types.join(", ")}): listed, not read`, el("b", {}, c.other_found)));
   if (c.zips_not_opened) lines.append(el("li", {}, "Zip files not opened", el("b", {}, c.zips_not_opened)));
   parts.push(lines);
   if (st.main_only) parts.push(el("div", { class: "muted" }, "Subfolders inside job folders were not opened (main job folder only)."));
   parts.push(el("div", { class: "label" }, "Saved in"), el("div", { class: "where" }, st.results));
   parts.push(el("div", { class: "files-list" },
     el("b", {}, "fields.csv"), " one row per form field", el("br"),
-    el("b", {}, "files.csv"), " one row per PDF, and any problems", el("br"),
+    el("b", {}, "files.csv"), " one row per file found, and any problems", el("br"),
     el("b", {}, "settings-used.txt"), " the choices that made these results"));
   parts.push(el("div", { class: "privacy" }, "These files hold real client data. Keep them on this computer and delete them when done."));
   body.replaceChildren(el("div", { style: "display:flex;flex-direction:column;gap:10px" }, ...parts));
@@ -153,7 +189,8 @@ function drawError(text) {
 function setRunning(on) {
   $("run").disabled = on;
   $("stop").disabled = !on;
-  for (const id of ["folder", "out", "new-name", "add-name", "browse-folder", "browse-out", "zips"]) $(id).disabled = on;
+  for (const id of ["folder", "out", "new-name", "add-name", "new-type", "add-type", "browse-folder", "browse-out", "zips"]) $(id).disabled = on;
+  document.querySelectorAll(".chip button").forEach((b) => { b.disabled = on; });
   document.querySelectorAll('input[type="radio"]').forEach((r) => { r.disabled = on; });
 }
 
@@ -177,6 +214,7 @@ async function poll() {
 
 async function run() {
   if ($("new-name").value.trim()) addName();
+  if (!(await addType())) return;
   const answer = await api.start(current());
   if (!answer.ok) { drawError(answer.error); $("status").textContent = "Not started."; return; }
   $("open-results").disabled = true;
@@ -206,6 +244,8 @@ async function start() {
     if (picked) { $("out").value = picked; remember(); }
   });
   $("add-name").addEventListener("click", addName);
+  $("add-type").addEventListener("click", addType);
+  $("new-type").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addType(); } });
   $("new-name").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addName(); } });
   document.querySelectorAll('input[name="match"]').forEach((r) => r.addEventListener("change", drawExample));
   document.querySelectorAll("#form-panel input").forEach((i) => i.addEventListener("change", remember));

@@ -24,12 +24,20 @@ Include zip files: no
 File names:
   - worksheet
 
+# Other file types to FIND, besides PDFs (optional), separated by
+# semicolons, e.g.  docx; wpd; txt
+# PDFs are always read. Files of these types are listed in files.csv
+# by name and folder only; they are never opened or read.
+Other file types:
+
 # How to compare the file names above with each PDF's name:
 #   partial  - the PDF's name CONTAINS one of them
 #              ("worksheet" finds "Smith Worksheet FINAL.pdf")
 #   complete - the PDF's name IS exactly one of them
 #              ("worksheet" finds "Worksheet.pdf" but not "Worksheet 2.pdf")
-# Capital letters, extra spaces and the ".pdf" ending never matter.
+# Capital letters, extra spaces and the file's ending (.pdf, .docx) never
+# matter. A name written with an ending, like "worksheet.docx", finds
+# only that type.
 Match: partial
 
 # Where to put the results. Leave blank for a new dated folder in

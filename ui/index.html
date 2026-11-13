@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>PDF Form Reader</title>
+<title>Pinky - Form Reader</title>
 <link rel="stylesheet" href="style.css">
 <script>
 /* Light or dark before anything is drawn, following Windows. */
@@ -15,12 +15,12 @@
 <body>
 <div id="app">
   <aside id="sidebar">
-    <div id="app-title">Form Reader</div>
-    <div id="app-subtitle">Fillable PDFs</div>
+    <div id="app-title">Pinky</div>
+    <div id="app-subtitle">Form Reader</div>
     <nav id="steps">
       <div class="step active" data-card="card-folder"><span>1</span> Folder</div>
       <div class="step" data-card="card-where"><span>2</span> Where to Look</div>
-      <div class="step" data-card="card-names"><span>3</span> File Names</div>
+      <div class="step" data-card="card-names"><span>3</span> What to Look For</div>
       <div class="step" data-card="card-results-folder"><span>4</span> Save Results</div>
     </nav>
     <div class="side-note"><b>Runs only on this computer.</b><br>Nothing is sent anywhere, and your job files are never changed.</div>
@@ -64,8 +64,9 @@
         </section>
 
         <section class="card" id="card-names">
-          <div class="card-title"><span class="num">3</span>File names to look for</div>
-          <div id="names"></div>
+          <div class="card-title"><span class="num">3</span>What to look for</div>
+          <div class="label">File names</div>
+          <div id="names" class="tagbox"></div>
           <div class="file-row">
             <input type="text" id="new-name" placeholder="Type a file name and press Enter" spellcheck="false">
             <button type="button" id="add-name">Add</button>
@@ -78,6 +79,15 @@
             </div>
           </div>
           <div class="example" id="example"></div>
+          <div class="divider"></div>
+          <div class="label">File types <span class="optional">optional</span></div>
+          <div id="types" class="tagbox"></div>
+          <div class="file-row">
+            <input type="text" id="new-type" placeholder="Add a file type, e.g. docx, wpd, txt" spellcheck="false">
+            <button type="button" id="add-type">Add</button>
+          </div>
+          <div class="muted" id="type-note">Pinky always reads PDF forms. Other types you add are found and
+            listed in files.csv by name and folder; they are not opened or read.</div>
         </section>
 
         <section class="card" id="card-results-folder">

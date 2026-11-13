@@ -1,4 +1,4 @@
-# Builds "PDF Form Reader.exe" on a GitHub Windows machine.
+# Builds "Pinky.exe" (Pinky - Form Reader) on a GitHub Windows machine.
 #
 # Runs on every push to any branch that changes the reader, and can be started
 # by hand (Actions tab > Build Windows app > Run workflow). The finished .exe
@@ -40,7 +40,7 @@ jobs:
       - name: Build the .exe
         run: >
           pyinstaller --onefile --windowed --clean --noconfirm
-          --name "PDF Form Reader"
+          --name "Pinky"
           --add-data "ui;ui"
           --exclude-module tkinter
           pdf_form_reader_app.py
@@ -52,16 +52,16 @@ jobs:
         shell: pwsh
         timeout-minutes: 3
         run: |
-          $p = Start-Process -FilePath "dist\PDF Form Reader.exe" -ArgumentList "--selftest" -Wait -PassThru
+          $p = Start-Process -FilePath "dist\Pinky.exe" -ArgumentList "--selftest" -Wait -PassThru
           if ($p.ExitCode -ne 0) {
-            Get-Content "$env:TEMP\pdf-form-reader-selftest.txt" -ErrorAction SilentlyContinue
+            Get-Content "$env:TEMP\pinky-selftest.txt" -ErrorAction SilentlyContinue
             throw "The built app failed its self-check (exit code $($p.ExitCode))."
           }
           Write-Host "Self-check passed."
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PDF-Form-Reader-for-Windows
-          path: dist/PDF Form Reader.exe
+          name: Pinky-for-Windows
+          path: dist/Pinky.exe
           retention-days: 90
           if-no-files-found: error
