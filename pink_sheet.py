@@ -57,7 +57,7 @@ SHEET_COLUMNS = [
     ("Picture-in-Picture", None),        # Dropdown9 on the Oct 2025 sheet
     ("Depo Summary (Dec 2023 / May 2025 sheets)", None),  # Dropdown9 on the older sheets
     ("Production completed", "Check Box19.0"),
-    ("Production by", "Dropdown4"),
+    ("Printed by", "Dropdown4"),          # "Production completed by" on the form (DevinAnn, 2026-11-13)
     ("Original: Printed w/ Full-Mini-Word Printed Copy (Standard Package)", "Check Box19.1.0"),
     ("  line", "Text21.0"),
     ("Original: Printed w/ Electronic Copy", "Check Box19.1.1.0"),
@@ -110,7 +110,7 @@ WITNESS_COLUMNS = [
 ]
 
 COLUMNS = [
-    "Month", "Job folder", "File", "Form version",
+    "Year", "Month", "Job folder", "File", "Form version",
     "Job Number",
     *WITNESS_COLUMNS,
     *_column_names(),

@@ -174,3 +174,13 @@ Where these go in the portal is still to be decided, field by field (the
 - **Results come as CSV and Excel**: pink-sheets.csv and files.csv, and the
   same two tables as sheets in pinky-results.xlsx.
 - The versions are named Dec 2023, May 2025 and Oct 2025.
+
+### Later again (DevinAnn, 2026-11-13)
+
+- "Production by" is renamed **"Printed by"** (the form's "Production
+  completed by"). "Production completed" keeps its name.
+- The **File** column shows the file's name only, in every table (a file
+  inside a zip reads "Pink Sheet.pdf (in bundle.zip)").
+- A **Year** column comes before Month, in every table.
+- DevinAnn rearranges the columns herself as needed, so their order is not
+  a requirement.

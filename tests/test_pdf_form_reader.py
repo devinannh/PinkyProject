@@ -24,6 +24,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pdf_form_reader as reader  # noqa: E402
 
 
+def place(row) -> str:
+    """Where a result row's file is: month / job folder / file name. The File
+    column holds the file's name only (DevinAnn, 2026-11-13)."""
+    return f'{row["Month"]}/{row["Job folder"]}/{row["File"]}'
+
+
 def fillable_form(filled: bool) -> bytes:
     """A two-page form with every field type the job forms use."""
     buf = io.BytesIO()
@@ -174,17 +180,18 @@ class WholeFolder(unittest.TestCase):
 
     def test_finds_pdfs_in_subfolders_and_zips(self):
         fields, files = self.run_reader("--look-in", "all", "--zips", "yes")
-        names = sorted(f["File"] for f in files)
+        names = sorted(place(f) for f in files)
         self.assertEqual(
             names,
             sorted([
                 "March/Job 140205/worksheet.pdf",
-                "March/Job 140205/Exhibits/Deeper/scan.pdf",
-                "March/Job 140205/bundle.zip > a/worksheet copy.PDF",
-                "March/Job 140205/bundle.zip > inner.zip > nested/form.pdf",
+                "March/Job 140205/scan.pdf",
+                "March/Job 140205/worksheet copy.PDF (in bundle.zip)",
+                "March/Job 140205/form.pdf (in inner.zip)",
             ]),
         )
         self.assertTrue(all(f["Month"] == "March" and f["Job folder"] == "Job 140205" for f in files))
+        self.assertTrue(all(f["Year"] == "2026" for f in files))
         self.assertTrue(any(f["Field name"] == "rush" and f["Value"] == "Checked" for f in fields))
 
     def test_formulas_are_not_live_in_excel(self):
@@ -227,6 +234,7 @@ class WholeFolder(unittest.TestCase):
         with open(self.out / "files.csv", encoding="utf-8-sig") as fh:
             files = list(csv.DictReader(fh))
         self.assertTrue(all(f["Month"] == "March" and f["Job folder"] == "Job 140205" for f in files))
+        self.assertTrue(all(f["Year"] == "2026" for f in files))
 
 
 class ChoosingWhatToRead(unittest.TestCase):
@@ -258,7 +266,8 @@ class ChoosingWhatToRead(unittest.TestCase):
         self.assertEqual(code, 0)
         with open(self.out / "files.csv", encoding="utf-8-sig") as fh:
             rows = list(csv.DictReader(fh))
-        return {r["File"]: r for r in rows}
+        self.rows = rows
+        return {place(r): r for r in rows}
 
     def test_default_is_main_job_folder_partial_no_zips(self):
         got = self.files_read(str(self.root), "--name", "worksheet")
@@ -280,13 +289,15 @@ class ChoosingWhatToRead(unittest.TestCase):
 
     def test_all_subfolders(self):
         got = self.files_read(str(self.root), "--name", "worksheet", "--match", "complete", "--look-in", "all")
-        self.assertIn("March/Job 140205/Sub/worksheet.pdf", got)
+        # the main folder's worksheet.pdf AND Sub/worksheet.pdf: the File
+        # column names both "worksheet.pdf"
+        self.assertEqual(sorted(place(r) for r in self.rows).count("March/Job 140205/worksheet.pdf"), 2)
         self.assertNotIn("March/loose worksheet.pdf", got)  # not inside a job folder
 
     def test_zips_yes_reads_only_matching_pdfs_inside(self):
         got = self.files_read(str(self.root), "--name", "worksheet", "--match", "complete", "--zips", "yes")
-        self.assertIn("March/Job 140205/bundle.zip > docs/worksheet.pdf", got)
-        self.assertNotIn("March/Job 140205/bundle.zip > docs/other.pdf", got)
+        self.assertIn("March/Job 140205/worksheet.pdf (in bundle.zip)", got)
+        self.assertNotIn("March/Job 140205/other.pdf (in bundle.zip)", got)
 
     def test_no_names_reads_every_pdf_in_the_main_folders(self):
         got = self.files_read(str(self.root))
@@ -317,14 +328,14 @@ class ChoosingWhatToRead(unittest.TestCase):
         code = reader.main(["--settings", str(path), "--quiet"])
         self.assertEqual(code, 0)
         with open(self.out / "files.csv", encoding="utf-8-sig") as fh:
-            got = {r["File"] for r in csv.DictReader(fh)}
-        self.assertEqual(got, {
+            got = sorted(place(r) for r in csv.DictReader(fh))
+        self.assertEqual(got, sorted([
             "April/Job 140300/WORKSHEET.PDF",
             "March/Job 140205/worksheet.pdf",
             "March/Job 140205/Notice.pdf",
-            "March/Job 140205/Sub/worksheet.pdf",
-            "March/Job 140205/bundle.zip > docs/worksheet.pdf",
-        })
+            "March/Job 140205/worksheet.pdf",          # Sub/worksheet.pdf
+            "March/Job 140205/worksheet.pdf (in bundle.zip)",
+        ]))
         used = (self.out / "settings-used.txt").read_text()
         self.assertIn("Match: complete", used)
         self.assertIn("  - notice", used)
@@ -372,19 +383,19 @@ class OtherFileTypes(unittest.TestCase):
     def files(self, *args):
         self.assertEqual(reader.main([str(self.root), "--out", str(self.out), "--quiet", *args]), 0)
         with open(self.out / "files.csv", encoding="utf-8-sig") as fh:
-            return {r["File"]: r for r in csv.DictReader(fh)}
+            return {place(r): r for r in csv.DictReader(fh)}
 
     def test_pdf_only_by_default(self):
         self.assertEqual(sorted(self.files("--name", "worksheet")), ["March/Job 140205/Worksheet.pdf"])
 
     def test_extra_types_are_listed_not_read(self):
         got = self.files("--name", "worksheet", "--type", "docx", "--type", ".WPD", "--zips", "yes")
-        self.assertEqual(sorted(got), [
+        self.assertEqual(sorted(got), sorted([
             "March/Job 140205/Worksheet.docx",
             "March/Job 140205/Worksheet.pdf",
             "March/Job 140205/Worksheet.wpd",
-            "March/Job 140205/bundle.zip > Worksheet.DOCX",
-        ])
+            "March/Job 140205/Worksheet.DOCX (in bundle.zip)",
+        ]))
         docx = got["March/Job 140205/Worksheet.docx"]
         self.assertEqual((docx["File type"], docx["Result"], docx["Fields"]), ("DOCX", reader.RESULT_FOUND, "0"))
         self.assertEqual(got["March/Job 140205/Worksheet.pdf"]["Result"], reader.RESULT_READ)
@@ -521,7 +532,7 @@ class PinkSheetMode(unittest.TestCase):
         with open(self.out / "pink-sheets.csv", encoding="utf-8-sig") as fh:
             rows = list(csv.DictReader(fh))
         with open(self.out / "files.csv", encoding="utf-8-sig") as fh:
-            files = {r["File"]: r for r in csv.DictReader(fh)}
+            files = {place(r): r for r in csv.DictReader(fh)}
         return rows, files
 
     def test_one_row_per_job_with_each_witness_in_its_own_columns(self):
@@ -542,7 +553,8 @@ class PinkSheetMode(unittest.TestCase):
             "Initial QC completed": "Yes", "Initial QC by": "Becca",
             "30(b)(6)": "NO", "Videotaped": "NO", "Interpreter": "NO", "Cross-Depo": "NO",
             "Picture-in-Picture": "YES", "Depo Summary (Dec 2023 / May 2025 sheets)": "",
-            "Production completed": "Yes", "Production by": "DevinAnn",
+            "Production completed": "Yes", "Printed by": "DevinAnn",
+            "Year": "2026", "File": "Pink Sheet.pdf",
             "Original: No Printed Original w/ Electronic Copy": "Yes",
             "Original: No Printed Original w/ Electronic Copy - line": "made-up line",
             "Original: No Printed Original w/ Electronic Copy - media": "E-Mail",
@@ -557,8 +569,11 @@ class PinkSheetMode(unittest.TestCase):
 
     def test_columns_in_order(self):
         cols = reader.pink_sheet.COLUMNS
-        self.assertEqual(cols[4:8], ["Job Number", "Witness A", "Witness A R&S", "Witness A R&S Sent To"])
-        self.assertEqual(cols[20:23], ["Witness F", "Witness F R&S", "Witness F R&S Sent To"])
+        self.assertEqual(cols[:5], ["Year", "Month", "Job folder", "File", "Form version"])
+        self.assertEqual(cols[5:9], ["Job Number", "Witness A", "Witness A R&S", "Witness A R&S Sent To"])
+        self.assertEqual(cols[21:24], ["Witness F", "Witness F R&S", "Witness F R&S Sent To"])
+        self.assertIn("Printed by", cols)
+        self.assertNotIn("Production by", cols)
         for flag in ("30(b)(6)", "Videotaped", "Interpreter", "Cross-Depo", "Picture-in-Picture", "USB", "USB Qty"):
             self.assertIn(flag, cols)
         self.assertEqual(len(cols), len(set(cols)))
@@ -712,7 +727,7 @@ class AppBehindThePage(unittest.TestCase):
         self.assertEqual(st["state"], "done")
         self.assertEqual(st["counts"]["pdfs"], 1)
         with open(Path(st["results"]) / "files.csv", encoding="utf-8-sig") as fh:
-            files = [r["File"] for r in csv.DictReader(fh)]
+            files = [place(r) for r in csv.DictReader(fh)]
         self.assertEqual(files, ["March/Job 140205/Smith Worksheet.pdf"])
         self.assertEqual(self.api.load()["names"], ["worksheet"])
 
@@ -783,3 +798,23 @@ class NoInternet(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FileColumn(unittest.TestCase):
+    def test_file_name_only(self):
+        self.assertEqual(reader.display_name("March/Job 1/Pink Sheet.pdf"), "Pink Sheet.pdf")
+        self.assertEqual(reader.display_name("March/Job 1/Sub/x.pdf"), "x.pdf")
+        self.assertEqual(reader.display_name("March/Job 1/b.zip > docs/Pink Sheet.pdf"), "Pink Sheet.pdf (in b.zip)")
+        self.assertEqual(reader.display_name("March/Job 1/b.zip > in.zip > y.pdf"), "y.pdf (in in.zip)")
+
+    def test_year_and_month_when_starting_at_one_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            job = Path(tmp) / "2026" / "March" / "Job 1"
+            job.mkdir(parents=True)
+            (job / "worksheet.pdf").write_bytes(fillable_form(True))
+            out = Path(tmp) / "out"
+            self.assertEqual(reader.main([str(job), "--start", "job", "--out", str(out), "--quiet"]), 0)
+            with open(out / "files.csv", encoding="utf-8-sig") as fh:
+                row = next(csv.DictReader(fh))
+            self.assertEqual((row["Year"], row["Month"], row["Job folder"], row["File"]),
+                             ("2026", "March", "Job 1", "worksheet.pdf"))

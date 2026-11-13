@@ -55,7 +55,7 @@ setting.
    *Pink Sheet* reads the Production department's Pink Sheet into
    **pink-sheets.csv**, one row per job: Job Number, Witness A to F each
    with R&S and R&S Sent To, Original +, Notes, Initial QC, the YES/NO flags,
-   Production, Originals, Copies, USB / CD, and Final QC By. Checklist ticks
+   Production (Printed by), Originals, Copies, USB and USB Qty, and Final QC By. Checklist ticks
    and Billing are left out, and fields.csv is not written. Pinky reads the
    sheet's revision from its "Revised …" date, and anything odd (no Job
    Number, page 2 Job Number different, an unknown revision, no witness) is
@@ -92,8 +92,8 @@ Capital letters, extra spaces and the file's ending (`.pdf`, `.docx`) never matt
 
 | Column | What it means |
 | --- | --- |
-| Month, Job folder | The folders the PDF sits in |
-| File | The PDF's path. Inside a zip: `bundle.zip > form.pdf` |
+| Year, Month, Job folder | The folders the PDF sits in |
+| File | The file's name only. Inside a zip: `form.pdf (in bundle.zip)` |
 | Page | Which page the field is on |
 | Field name | The form's own name for the field (what we will match on) |
 | Field label | The hover-text label, when the form has one |

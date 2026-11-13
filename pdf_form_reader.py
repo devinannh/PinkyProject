@@ -72,6 +72,7 @@ FF_COMBO = 1 << 17
 FF_MULTISELECT = 1 << 21
 
 FIELD_COLUMNS = [
+    "Year",
     "Month",
     "Job folder",
     "File",
@@ -87,6 +88,7 @@ FIELD_COLUMNS = [
     "Required",
 ]
 FILE_COLUMNS = [
+    "Year",
     "Month",
     "Job folder",
     "File",
@@ -403,11 +405,17 @@ class Report:
     sheet (Billing included) leaves the PDF.
     Both: files.csv / sheet "Files", one row per file found."""
 
-    def __init__(self, out_dir: Path, start: str, root_name: str = "", form: str = "any"):
+    def __init__(self, out_dir: Path, start: str, root_name: str = "", form: str = "any",
+                 root: Path | None = None):
         self.out_dir = out_dir
         self.start = start
         self.root_name = root_name
         self.form = form
+        # The names of the folders above the one being read, for the Year and
+        # Month columns when the run starts at a month or a single job.
+        above = list(root.parents) if root is not None else []
+        self._parent = above[0].name if len(above) > 0 else ""
+        self._grandparent = above[1].name if len(above) > 1 else ""
         out_dir.mkdir(parents=True, exist_ok=False)
         if form == "pink":
             self._main_name, self._main_sheet, header = "pink-sheets.csv", "Pink Sheets", pink_sheet.COLUMNS
@@ -435,19 +443,19 @@ class Report:
         self._files_csv.writerow([_safe_cell(v) for v in values])
         self._file_rows.append(list(values))
 
-    def where(self, parts: list[str]) -> tuple[str, str]:
-        """Month and job folder from a path relative to the starting folder."""
+    def where(self, parts: list[str]) -> tuple[str, str, str]:
+        """Year, month and job folder, from the folder names."""
         folders = parts[:-1]
         if self.start == "year":
-            return (folders[0] if folders else "", folders[1] if len(folders) > 1 else "")
+            return (self.root_name, folders[0] if folders else "", folders[1] if len(folders) > 1 else "")
         if self.start == "month":
-            return (self.root_name, folders[0] if folders else "")
-        return ("", self.root_name)
+            return (self._parent, self.root_name, folders[0] if folders else "")
+        return (self._grandparent, self._parent, self.root_name)
 
     def add(self, parts: list[str], shown_path: str, result: PdfResult, matched: str = ""):
         if self.form == "pink":
             return self._add_pink(parts, shown_path, result, matched)
-        month, job = self.where(parts)
+        year, month, job = self.where(parts)
         filled = sum(1 for r in result.fields if r.filled)
         self.counts["pdfs"] += 1
         if result.result == RESULT_READ:
@@ -455,23 +463,23 @@ class Report:
             self.counts["fields"] += len(result.fields)
         elif result.result != RESULT_NO_FORM:
             self.counts["problems"] += 1
-        self._file_row([month, job, shown_path, file_type(shown_path).upper(), matched,
+        self._file_row([year, month, job, display_name(shown_path), file_type(shown_path).upper(), matched,
                         result.result, len(result.fields), filled, result.note])
         for r in result.fields:
             self._main_row([
-                month, job, shown_path, r.pages, r.name, r.label, r.kind,
+                year, month, job, display_name(shown_path), r.pages, r.name, r.label, r.kind,
                 r.value, "Yes" if r.filled else "No", r.choices, r.raw,
                 "Yes" if r.read_only else "", "Yes" if r.required else "",
             ])
 
     def _add_pink(self, parts, shown_path, result: PdfResult, matched: str):
-        month, job = self.where(parts)
+        year, month, job = self.where(parts)
         self.counts["pdfs"] += 1
         by_name = {f.name: f for f in result.fields}
         if result.result != RESULT_READ or not pink_sheet.is_pink_sheet(by_name):
             self.counts["problems"] += 1
             note = result.note if result.result != RESULT_READ else "Not a Pink Sheet (its fields do not match the form)"
-            self._file_row([month, job, shown_path, file_type(shown_path).upper(),
+            self._file_row([year, month, job, display_name(shown_path), file_type(shown_path).upper(),
                             matched, result.result, len(result.fields), 0, note])
             return
         sheet_row = pink_sheet.row(by_name, result.page_one_text)
@@ -480,27 +488,40 @@ class Report:
         needs = sheet_row["Needs a look"]
         if needs:
             self.counts["problems"] += 1
-        self._file_row([month, job, shown_path, file_type(shown_path).upper(), matched, "Pink Sheet read",
+        self._file_row([year, month, job, display_name(shown_path), file_type(shown_path).upper(), matched, "Pink Sheet read",
                         len(result.fields), sum(1 for f in result.fields if f.filled), needs])
-        out = {"Month": month, "Job folder": job, "File": shown_path, **sheet_row}
+        out = {"Year": year, "Month": month, "Job folder": job, "File": display_name(shown_path), **sheet_row}
         self._main_row([out.get(c, "") for c in pink_sheet.COLUMNS])
 
     def skip(self, parts: list[str], shown_path: str, reason: str):
-        month, job = self.where(parts)
+        year, month, job = self.where(parts)
         self.counts["problems"] += 1
-        self._file_row([month, job, shown_path, file_type(shown_path).upper(), "", RESULT_SKIPPED, 0, 0, reason])
+        self._file_row([year, month, job, display_name(shown_path), file_type(shown_path).upper(), "", RESULT_SKIPPED, 0, 0, reason])
 
     def found(self, parts: list[str], shown_path: str, matched: str):
         """A file of an extra type: listed by name and place only, never opened."""
-        month, job = self.where(parts)
+        year, month, job = self.where(parts)
         self.counts["other_found"] += 1
-        self._file_row([month, job, shown_path, file_type(shown_path).upper(), matched, RESULT_FOUND, 0, 0, ""])
+        self._file_row([year, month, job, display_name(shown_path), file_type(shown_path).upper(), matched, RESULT_FOUND, 0, 0, ""])
 
     def close(self):
         self._main_fh.close()
         self._files_fh.close()
         write_workbook(self.out_dir / WORKBOOK_NAME,
                        [(self._main_sheet, self._main_rows), ("Files", self._file_rows)])
+
+
+def display_name(shown_path: str) -> str:
+    """The File column: the file's own name only (DevinAnn, 2026-11-13), with
+    the zip it came from when it was inside one.
+    'March/Job 1/Pink Sheet.pdf' -> 'Pink Sheet.pdf'
+    'March/Job 1/bundle.zip > docs/Pink Sheet.pdf' -> 'Pink Sheet.pdf (in bundle.zip)'"""
+    pieces = shown_path.split(" > ")
+    name = pieces[-1].rsplit("/", 1)[-1]
+    if len(pieces) > 1:
+        zip_name = pieces[-2].rsplit("/", 1)[-1]
+        return f"{name} (in {zip_name})"
+    return name
 
 
 WORKBOOK_NAME = "pinky-results.xlsx"
@@ -985,7 +1006,7 @@ def main(argv=None) -> int:
         print(problem)
         return 2
 
-    report = Report(out_dir, settings.start, root.name, settings.form)
+    report = Report(out_dir, settings.start, root.name, settings.form, root)
     # A record of what produced these results, kept beside them.
     (out_dir / "settings-used.txt").write_text(settings.describe(), encoding="utf-8")
     if not args.quiet:

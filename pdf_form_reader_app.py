@@ -186,7 +186,7 @@ class Api:
                 self._state["now"] = shown
 
         try:
-            report = core.Report(out_dir, settings.start, root.name, settings.form)
+            report = core.Report(out_dir, settings.start, root.name, settings.form, root)
             (out_dir / "settings-used.txt").write_text(settings.describe(), encoding="utf-8")
             stopped = False
             try:

@@ -125,7 +125,7 @@ async function addType() {
 
 const FORM_NOTES = {
   any: "Lists every field of every PDF read, in fields.csv (and the Excel workbook).",
-  pink: "Reads the Pink Sheet's chosen values into pink-sheets.csv (and the Excel workbook), one row per job: Job Number, Witness A to F each with R&S and R&S Sent To, Original +, Notes, Initial QC, the YES/NO flags, Production, Originals, Copies, USB, and Final QC By. Checklist ticks and Billing are left out. Tip: add \u201cpink sheet\u201d as a file name.",
+  pink: "Reads the Pink Sheet's chosen values into pink-sheets.csv (and the Excel workbook), one row per job: Job Number, Witness A to F each with R&S and R&S Sent To, Original +, Notes, Initial QC, the YES/NO flags, Production (Printed by), Originals, Copies, USB, and Final QC By. Checklist ticks and Billing are left out. Tip: add \u201cpink sheet\u201d as a file name.",
 };
 function drawFormNote() { $("form-note").textContent = FORM_NOTES[radio("form")] || ""; }
 
