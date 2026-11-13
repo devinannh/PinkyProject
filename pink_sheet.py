@@ -11,9 +11,12 @@ start with 1 value"). Not wanted: the checklist ticks and "Verify order
 details". Billing is out of scope for now (DevinAnn, 2026-11-13). Page 2's
 Job Number is not output; it is only checked against page 1.
 
-Output is ONE ROW PER WITNESS listed at the top of the sheet ("If multiple
-witnesses are listed at the top, all must be included"), with the sheet's
-values repeated on each row so any row can be read alone.
+Output is ONE ROW PER JOB (one per sheet), with each witness listed at the
+top in its own set of columns: Witness A, Witness A R&S, Witness A R&S Sent
+To, then B ... F, in the order the rows appear on the form (DevinAnn,
+2026-11-13: "one row per job, with columns like Witness A, Witness A R&S,
+Witness A R&S Sent To"; "If multiple witnesses are listed at the top, all
+must be included").
 
 The field names come from the three revisions of the form (docs/pink-sheet-
 field-map.md). They are the same in all three for everything read here,
@@ -29,7 +32,7 @@ import re
 
 # The revisions, by the date printed at the bottom of page 1.
 VERSIONS = {
-    "December 8, 2023": "2023",
+    "December 8, 2023": "Dec 2023",
     "May 2, 2025": "May 2025",
     "October 13, 2025": "Oct 2025",
 }
@@ -52,7 +55,7 @@ SHEET_COLUMNS = [
     ("Interpreter", "Dropdown1.1"),
     ("Cross-Depo", "Dropdown1.2"),
     ("Picture-in-Picture", None),        # Dropdown9 on the Oct 2025 sheet
-    ("Depo Summary (2023 / May 2025 sheets)", None),  # Dropdown9 on the older sheets
+    ("Depo Summary (Dec 2023 / May 2025 sheets)", None),  # Dropdown9 on the older sheets
     ("Production completed", "Check Box19.0"),
     ("Production by", "Dropdown4"),
     ("Original: Printed w/ Full-Mini-Word Printed Copy (Standard Package)", "Check Box19.1.0"),
@@ -78,8 +81,8 @@ SHEET_COLUMNS = [
     ("  media", "Dropdown11"),           # not on the 2023 sheet
     ("Copies: E-Mail Only", "Check Box19.1.1.1.1.1.5.0"),
     ("  quantity", "Text22.2.2"),
-    ("USB / CD", "Check Box25"),
-    ("USB / CD #", "Text26"),
+    ("USB", "Check Box25"),         # "Disc/CD" / "CD/USB" on the older sheets
+    ("USB Qty", "Text26"),
     # Page 2: one value only, for now (DevinAnn, 2026-11-13).
     ("Final QC by", "Dropdown6"),
 ]
@@ -98,9 +101,18 @@ def _column_names() -> list[str]:
     return names
 
 
+WITNESS_LETTERS = "ABCDEF"
+
+WITNESS_COLUMNS = [
+    col
+    for letter in WITNESS_LETTERS
+    for col in (f"Witness {letter}", f"Witness {letter} R&S", f"Witness {letter} R&S Sent To")
+]
+
 COLUMNS = [
     "Month", "Job folder", "File", "Form version",
-    "Job Number", "Witness #", "Witness", "R&S", "R&S Sent To",
+    "Job Number",
+    *WITNESS_COLUMNS,
     *_column_names(),
     "Needs a look",
 ]
@@ -133,9 +145,9 @@ def _value(fields: dict, name) -> str:
     return f.value.strip() if f.filled else ""
 
 
-def rows(fields: dict, page_one_text: str, page_two_job_number: str | None = None) -> list[dict]:
-    """One dict per witness listed (or one row when none is), keyed by COLUMNS
-    minus the place columns. `fields` maps field name -> FieldRow."""
+def row(fields: dict, page_one_text: str, page_two_job_number: str | None = None) -> dict:
+    """The sheet's one row, keyed by COLUMNS minus the place columns.
+    `fields` maps field name -> FieldRow."""
     version, printed = version_of(page_one_text)
     problems = []
     if not version:
@@ -147,6 +159,8 @@ def rows(fields: dict, page_one_text: str, page_two_job_number: str | None = Non
     job = _value(fields, "Job Number")
     if not job:
         problems.append("No Job Number")
+    # A blank page 2 Job Number is not a mismatch (DevinAnn, 2026-11-13):
+    # only two filled-in numbers that differ are flagged.
     p2 = _value(fields, "Text28") if page_two_job_number is None else page_two_job_number
     if p2 and job and "".join(p2.split()) != "".join(job.split()):
         problems.append(f"Page 2 Job Number differs ({p2})")
@@ -158,34 +172,30 @@ def rows(fields: dict, page_one_text: str, page_two_job_number: str | None = Non
     dd9 = _value(fields, "Dropdown9")
     if version == "Oct 2025":
         sheet["Picture-in-Picture"] = dd9
-    elif version in ("2023", "May 2025"):
-        sheet["Depo Summary (2023 / May 2025 sheets)"] = dd9
+    elif version in ("Dec 2023", "May 2025"):
+        sheet["Depo Summary (Dec 2023 / May 2025 sheets)"] = dd9
     elif dd9:
         problems.append(f"Dropdown9 is {dd9}, but its meaning depends on the revision")
 
-    witnesses = []
-    for i in range(6):
+    row = {
+        "Form version": version or (f"Unknown (Revised {printed})" if printed else "Unknown"),
+        "Job Number": job,
+    }
+    listed = 0
+    for i, letter in enumerate(WITNESS_LETTERS):
         name = _value(fields, WITNESS_NAME[i])
         rs = _value(fields, WITNESS_RS[i])
         sent = _value(fields, WITNESS_RS_SENT_TO[i])
         if name:
-            witnesses.append((i + 1, name, rs, sent))
+            listed += 1
         elif rs or sent:
-            problems.append(f"Witness row {i + 1} has R&S details but no witness name")
-    if not witnesses:
+            problems.append(f"Witness row {letter} has R&S details but no witness name")
+        row[f"Witness {letter}"] = name
+        row[f"Witness {letter} R&S"] = rs
+        row[f"Witness {letter} R&S Sent To"] = sent
+    if not listed:
         problems.append("No witness listed")
-        witnesses = [("", "", "", "")]
-
-    out = []
-    for n, name, rs, sent in witnesses:
-        out.append({
-            "Form version": version or (f"Unknown (Revised {printed})" if printed else "Unknown"),
-            "Job Number": job,
-            "Witness #": n,
-            "Witness": name,
-            "R&S": rs,
-            "R&S Sent To": sent,
-            **sheet,
-            "Needs a look": "; ".join(problems),
-        })
-    return out
+    row.update(sheet)
+    row["Needs a look"] = "; ".join(problems)
+    row["_witnesses"] = listed      # for the count; not a column
+    return row

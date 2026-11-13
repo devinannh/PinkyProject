@@ -31,6 +31,7 @@ import csv
 import io
 import logging
 import os
+import re
 import sys
 import zipfile
 from dataclasses import dataclass, field
@@ -392,10 +393,15 @@ def _long_path(path: Path) -> str:
 
 
 class Report:
-    """Writes the results. form="any": fields.csv, every field of every PDF.
-    form="pink": pink-sheets.csv, the Pink Sheet's chosen values, one row per
-    witness; fields.csv is not written, so nothing else on the sheet (Billing
-    included) leaves the PDF."""
+    """Writes the results, each as a CSV file AND as a sheet in one Excel
+    workbook, pinky-results.xlsx (DevinAnn, 2026-11-13: "I want the outputs
+    to be in CSV and Excel format").
+
+    form="any": fields.csv / sheet "Fields", every field of every PDF.
+    form="pink": pink-sheets.csv / sheet "Pink Sheets", the Pink Sheet's chosen
+    values, one row per job; fields.csv is not written, so nothing else on the
+    sheet (Billing included) leaves the PDF.
+    Both: files.csv / sheet "Files", one row per file found."""
 
     def __init__(self, out_dir: Path, start: str, root_name: str = "", form: str = "any"):
         self.out_dir = out_dir
@@ -404,20 +410,30 @@ class Report:
         self.form = form
         out_dir.mkdir(parents=True, exist_ok=False)
         if form == "pink":
-            self._fields_fh = open(out_dir / "pink-sheets.csv", "w", newline="", encoding="utf-8-sig")
-            self.fields = csv.writer(self._fields_fh)
-            self.fields.writerow(pink_sheet.COLUMNS)
+            self._main_name, self._main_sheet, header = "pink-sheets.csv", "Pink Sheets", pink_sheet.COLUMNS
         else:
-            self._fields_fh = open(out_dir / "fields.csv", "w", newline="", encoding="utf-8-sig")
-            self.fields = csv.writer(self._fields_fh)
-            self.fields.writerow(FIELD_COLUMNS)
+            self._main_name, self._main_sheet, header = "fields.csv", "Fields", FIELD_COLUMNS
+        self._main_fh = open(out_dir / self._main_name, "w", newline="", encoding="utf-8-sig")
         self._files_fh = open(out_dir / "files.csv", "w", newline="", encoding="utf-8-sig")
-        self.files = csv.writer(self._files_fh)
-        self.files.writerow(FILE_COLUMNS)
+        self._main_csv = csv.writer(self._main_fh)
+        self._files_csv = csv.writer(self._files_fh)
+        # The same rows again for the workbook, written when the run ends.
+        self._main_rows: list[list] = [list(header)]
+        self._file_rows: list[list] = [list(FILE_COLUMNS)]
+        self._main_csv.writerow(header)
+        self._files_csv.writerow(FILE_COLUMNS)
         self.counts = {
             "pdfs": 0, "with_fields": 0, "fields": 0, "problems": 0,
-            "other_found": 0, "sheets": 0, "witness_rows": 0,
+            "other_found": 0, "sheets": 0, "witnesses": 0,
         }
+
+    def _main_row(self, values: list):
+        self._main_csv.writerow([_safe_cell(v) for v in values])
+        self._main_rows.append(list(values))
+
+    def _file_row(self, values: list):
+        self._files_csv.writerow([_safe_cell(v) for v in values])
+        self._file_rows.append(list(values))
 
     def where(self, parts: list[str]) -> tuple[str, str]:
         """Month and job folder from a path relative to the starting folder."""
@@ -439,21 +455,14 @@ class Report:
             self.counts["fields"] += len(result.fields)
         elif result.result != RESULT_NO_FORM:
             self.counts["problems"] += 1
-        self.files.writerow(
-            [_safe_cell(v) for v in (month, job, shown_path, file_type(shown_path).upper(), matched,
-                                     result.result, len(result.fields), filled, result.note)]
-        )
+        self._file_row([month, job, shown_path, file_type(shown_path).upper(), matched,
+                        result.result, len(result.fields), filled, result.note])
         for r in result.fields:
-            self.fields.writerow(
-                [
-                    _safe_cell(v)
-                    for v in (
-                        month, job, shown_path, r.pages, r.name, r.label, r.kind,
-                        r.value, "Yes" if r.filled else "No", r.choices, r.raw,
-                        "Yes" if r.read_only else "", "Yes" if r.required else "",
-                    )
-                ]
-            )
+            self._main_row([
+                month, job, shown_path, r.pages, r.name, r.label, r.kind,
+                r.value, "Yes" if r.filled else "No", r.choices, r.raw,
+                "Yes" if r.read_only else "", "Yes" if r.required else "",
+            ])
 
     def _add_pink(self, parts, shown_path, result: PdfResult, matched: str):
         month, job = self.where(parts)
@@ -462,38 +471,85 @@ class Report:
         if result.result != RESULT_READ or not pink_sheet.is_pink_sheet(by_name):
             self.counts["problems"] += 1
             note = result.note if result.result != RESULT_READ else "Not a Pink Sheet (its fields do not match the form)"
-            self.files.writerow([_safe_cell(v) for v in (month, job, shown_path, file_type(shown_path).upper(),
-                                                         matched, result.result, len(result.fields), 0, note)])
+            self._file_row([month, job, shown_path, file_type(shown_path).upper(),
+                            matched, result.result, len(result.fields), 0, note])
             return
-        rows = pink_sheet.rows(by_name, result.page_one_text)
+        sheet_row = pink_sheet.row(by_name, result.page_one_text)
         self.counts["sheets"] += 1
-        self.counts["witness_rows"] += sum(1 for r in rows if r["Witness"])
-        needs = rows[0]["Needs a look"]
+        self.counts["witnesses"] += sheet_row.pop("_witnesses")
+        needs = sheet_row["Needs a look"]
         if needs:
             self.counts["problems"] += 1
-        self.files.writerow([_safe_cell(v) for v in (month, job, shown_path, file_type(shown_path).upper(),
-                                                     matched, "Pink Sheet read", len(result.fields),
-                                                     sum(1 for f in result.fields if f.filled), needs)])
-        for row in rows:
-            row = {"Month": month, "Job folder": job, "File": shown_path, **row}
-            self.fields.writerow([_safe_cell(row.get(c, "")) for c in pink_sheet.COLUMNS])
+        self._file_row([month, job, shown_path, file_type(shown_path).upper(), matched, "Pink Sheet read",
+                        len(result.fields), sum(1 for f in result.fields if f.filled), needs])
+        out = {"Month": month, "Job folder": job, "File": shown_path, **sheet_row}
+        self._main_row([out.get(c, "") for c in pink_sheet.COLUMNS])
 
     def skip(self, parts: list[str], shown_path: str, reason: str):
         month, job = self.where(parts)
         self.counts["problems"] += 1
-        self.files.writerow([_safe_cell(v) for v in (month, job, shown_path, file_type(shown_path).upper(), "",
-                                                     RESULT_SKIPPED, 0, 0, reason)])
+        self._file_row([month, job, shown_path, file_type(shown_path).upper(), "", RESULT_SKIPPED, 0, 0, reason])
 
     def found(self, parts: list[str], shown_path: str, matched: str):
         """A file of an extra type: listed by name and place only, never opened."""
         month, job = self.where(parts)
         self.counts["other_found"] += 1
-        self.files.writerow([_safe_cell(v) for v in (month, job, shown_path, file_type(shown_path).upper(),
-                                                     matched, RESULT_FOUND, 0, 0, "")])
+        self._file_row([month, job, shown_path, file_type(shown_path).upper(), matched, RESULT_FOUND, 0, 0, ""])
 
     def close(self):
-        self._fields_fh.close()
+        self._main_fh.close()
         self._files_fh.close()
+        write_workbook(self.out_dir / WORKBOOK_NAME,
+                       [(self._main_sheet, self._main_rows), ("Files", self._file_rows)])
+
+
+WORKBOOK_NAME = "pinky-results.xlsx"
+_WHOLE_NUMBER = re.compile(r"(0|[1-9][0-9]{0,14})")
+
+
+def _excel_value(value):
+    """Whole numbers as numbers (so they sort and add up); everything else as
+    text. Leading zeros keep a value as text so nothing is lost."""
+    if isinstance(value, int):
+        return value
+    text = "" if value is None else str(value)
+    return int(text) if _WHOLE_NUMBER.fullmatch(text) else text
+
+
+def write_workbook(path: Path, sheets: list[tuple[str, list[list]]]) -> None:
+    """One workbook, one sheet per table: header in Gallo burgundy, frozen and
+    filterable, columns sized to their contents.
+
+    Every text cell is stored AS TEXT, never as a formula: a typed answer such
+    as "=HYPERLINK(...)" must not run when the workbook is opened."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    head_font = Font(bold=True, color="FFFFFF")
+    head_fill = PatternFill("solid", fgColor="7E1029")
+    for title, rows in sheets:
+        ws = wb.create_sheet(title)
+        widths: dict[int, int] = {}
+        for r, values in enumerate(rows, start=1):
+            for c, raw in enumerate(values, start=1):
+                value = str(raw) if r == 1 else _excel_value(raw)
+                cell = ws.cell(row=r, column=c, value=value)
+                if isinstance(value, str):
+                    cell.data_type = "s"  # text, even if it starts with "="
+                widths[c] = max(widths.get(c, 0), min(len(str(value)), 60))
+                if r == 1:
+                    cell.font = head_font
+                    cell.fill = head_fill
+                    cell.alignment = Alignment(vertical="top", wrap_text=True)
+        for c, w in widths.items():
+            ws.column_dimensions[get_column_letter(c)].width = max(10, w + 2)
+        ws.freeze_panes = "A2"
+        if len(rows) > 1:
+            ws.auto_filter.ref = ws.dimensions
+    wb.save(path)
 
 
 # --------------------------------------------------------------------------
@@ -862,7 +918,7 @@ def summary_lines(report: Report, settings: Settings) -> list[str]:
         lines = [
             f"PDFs read: {c['pdfs']}",
             f"   Pink Sheets: {c['sheets']}",
-            f"   witness rows: {c['witness_rows']}",
+            f"   witnesses listed: {c['witnesses']}",
             f"   needing a look: {c['problems']}  (see files.csv)",
         ]
         if settings.types:

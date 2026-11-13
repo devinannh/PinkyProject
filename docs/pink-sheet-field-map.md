@@ -22,7 +22,7 @@ it will need to do (see section 2).
 
 | Version | Printed date | Fields | Differences from the one before |
 | --- | --- | --- | --- |
-| **2023** | Revised December 8, 2023 | 106 | (the oldest) Media is "Disc/CD"; "Depo Summary" YES/NO sits under the flags |
+| **Dec 2023** | Revised December 8, 2023 | 106 | (the oldest) Media is "Disc/CD"; "Depo Summary" YES/NO sits under the flags |
 | **May 2025** | Revised May 2, 2025 | 112 | Adds "Verified order details" (5 ticks); media becomes "CD/USB"; adds a media choice for electronic copies |
 | **Oct 2025** | Revised October 13, 2025 | 113 | Adds "Picture-in-Picture"; renames order details; adds "End of ASCII" and "Ensure all pages are numbered"; "Deposition Analysis (summary) generation started"; media becomes "USB" |
 
@@ -161,3 +161,16 @@ row per witness:
 
 Where these go in the portal is still to be decided, field by field (the
 "Proposed portal home" column above). Nothing is imported yet.
+
+### Later the same day (DevinAnn, 2026-11-13)
+
+- **One row per job**, not per witness: Witness A, Witness A R&S, Witness A
+  R&S Sent To, then B to F, in the order the rows appear on the form.
+- **30(b)(6), Videotaped, Interpreter, Cross-Depo, Picture-in-Picture, USB and
+  USB Qty are columns.** (USB and USB Qty are the "Disc/CD" / "CD/USB" box on
+  the older sheets.)
+- **A blank page 2 Job Number is not a mismatch.** Only two filled-in numbers
+  that differ are flagged.
+- **Results come as CSV and Excel**: pink-sheets.csv and files.csv, and the
+  same two tables as sheets in pinky-results.xlsx.
+- The versions are named Dec 2023, May 2025 and Oct 2025.

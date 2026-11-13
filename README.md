@@ -53,8 +53,8 @@ setting.
    written with an ending, like `worksheet.docx`, finds only that type.
    **Form**: *Any fillable PDF* lists every field of every PDF (fields.csv).
    *Pink Sheet* reads the Production department's Pink Sheet into
-   **pink-sheets.csv**, one row per witness: Job Number, each witness with
-   R&S and R&S Sent To, Original +, Notes, Initial QC, the YES/NO flags,
+   **pink-sheets.csv**, one row per job: Job Number, Witness A to F each
+   with R&S and R&S Sent To, Original +, Notes, Initial QC, the YES/NO flags,
    Production, Originals, Copies, USB / CD, and Final QC By. Checklist ticks
    and Billing are left out, and fields.csv is not written. Pinky reads the
    sheet's revision from its "Revised …" date, and anything odd (no Job
@@ -102,6 +102,10 @@ Capital letters, extra spaces and the file's ending (`.pdf`, `.docx`) never matt
 | Filled in | Yes / No |
 | Choices offered | For dropdowns, lists and radio buttons: every option |
 | Raw value | Exactly what the PDF stores, for checking |
+
+**pinky-results.xlsx**: the same tables as sheets in one Excel workbook
+(header row frozen, filters on, whole numbers stored as numbers, and typed
+answers that start with `=` kept as plain text).
 
 **files.csv**: one row per PDF read, with which of your file names it
 matched, and whether its form was read and, if not, why: no fillable fields (a scan or a flattened form), password-protected,

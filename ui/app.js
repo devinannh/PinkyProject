@@ -95,7 +95,6 @@ function addName() {
   drawNames(); drawExample(); remember();
 }
 /* ------------------------------------------------------------ file types */
-const TYPE_NOTE = "Pinky always reads PDF forms. Other types you add are found and listed in files.csv by name and folder; they are not opened or read.";
 function drawTypes() {
   const box = $("types");
   box.replaceChildren(el("span", { class: "chip locked", title: "PDF forms are always read" },
@@ -108,9 +107,9 @@ function drawTypes() {
   });
 }
 function typeNote(text, isError) {
-  const note = $("type-note");
-  note.className = isError ? "type-error" : "muted";
-  note.textContent = text;
+  const err = $("type-error");
+  err.textContent = isError ? text : "";
+  err.hidden = !isError;
 }
 async function addType() {
   const typed = $("new-type").value.trim();
@@ -119,14 +118,14 @@ async function addType() {
   if (!answer.ok) { typeNote(answer.error, true); return false; }
   if (!types.includes(answer.type)) types.push(answer.type);
   $("new-type").value = "";
-  typeNote(TYPE_NOTE, false);
+  typeNote("", false);
   drawTypes(); remember();
   return true;
 }
 
 const FORM_NOTES = {
-  any: "Lists every field of every PDF read, in fields.csv.",
-  pink: "Reads the Pink Sheet's chosen values into pink-sheets.csv, one row per witness: Job Number, witnesses with R&S and R&S Sent To, Original +, Notes, Initial QC, the YES/NO flags, Production, Originals, Copies, USB, and Final QC By. Checklist ticks and Billing are left out. Tip: add \u201cpink sheet\u201d as a file name.",
+  any: "Lists every field of every PDF read, in fields.csv (and the Excel workbook).",
+  pink: "Reads the Pink Sheet's chosen values into pink-sheets.csv (and the Excel workbook), one row per job: Job Number, Witness A to F each with R&S and R&S Sent To, Original +, Notes, Initial QC, the YES/NO flags, Production, Originals, Copies, USB, and Final QC By. Checklist ticks and Billing are left out. Tip: add \u201cpink sheet\u201d as a file name.",
 };
 function drawFormNote() { $("form-note").textContent = FORM_NOTES[radio("form")] || ""; }
 
@@ -174,7 +173,7 @@ function drawDone(st) {
     : `Finished. ${c.fields} form field${c.fields === 1 ? "" : "s"} listed.`));
   parts.push(pink
     ? el("div", { class: "tiles" }, tile(c.pdfs, "PDFs read"), tile(c.sheets, "Pink Sheets"),
-        tile(c.witness_rows, "witness rows"), tile(c.problems, "needing a look (files.csv)", c.problems))
+        tile(c.witnesses, "witnesses listed"), tile(c.problems, "needing a look (files.csv)", c.problems))
     : el("div", { class: "tiles" }, tile(c.pdfs, "PDFs read"), tile(c.with_fields, "with form fields"),
         tile(c.fields, "form fields listed"), tile(c.problems, "needing a look (files.csv)", c.problems)));
   if (st.types && st.types.length) parts.push(el("ul", { class: "lines" }, el("li", {},
@@ -182,8 +181,9 @@ function drawDone(st) {
   if (st.main_only) parts.push(el("div", { class: "muted" }, "Subfolders inside job folders were not opened (main job folder only)."));
   parts.push(el("div", { class: "label" }, "Saved in"), el("div", { class: "where" }, st.results));
   parts.push(el("div", { class: "files-list" },
-    el("b", {}, pink ? "pink-sheets.csv" : "fields.csv"), pink ? " one row per witness on each Pink Sheet" : " one row per form field", el("br"),
+    el("b", {}, pink ? "pink-sheets.csv" : "fields.csv"), pink ? " one row per job" : " one row per form field", el("br"),
     el("b", {}, "files.csv"), " one row per file found, and any problems", el("br"),
+    el("b", {}, "pinky-results.xlsx"), " the same tables in one Excel workbook", el("br"),
     el("b", {}, "settings-used.txt"), " the choices that made these results"));
   parts.push(el("div", { class: "privacy" }, "These files hold real client data. Keep them on this computer and delete them when done."));
   body.replaceChildren(el("div", { style: "display:flex;flex-direction:column;gap:10px" }, ...parts));
@@ -252,9 +252,30 @@ async function start() {
   $("add-name").addEventListener("click", addName);
   $("add-type").addEventListener("click", addType);
   $("new-type").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addType(); } });
+  $("new-type").addEventListener("input", () => typeNote("", false));
   $("new-name").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addName(); } });
   document.querySelectorAll('input[name="match"]').forEach((r) => r.addEventListener("change", drawExample));
   document.querySelectorAll('input[name="form"]').forEach((r) => r.addEventListener("change", drawFormNote));
+
+  // The "i" buttons: hover shows the explanation; a click pins it open until
+  // the next click anywhere else, or Escape.
+  document.querySelectorAll(".info").forEach((btn) => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const wrap = btn.parentElement;
+    const open = !wrap.classList.contains("open");
+    document.querySelectorAll(".info-wrap.open").forEach((w) => { w.classList.remove("open"); w.firstChild.setAttribute("aria-expanded", "false"); });
+    wrap.classList.toggle("open", open);
+    btn.setAttribute("aria-expanded", String(open));
+  }));
+  const closeTips = () => document.querySelectorAll(".info-wrap.open").forEach((w) => {
+    w.classList.remove("open"); w.firstChild.setAttribute("aria-expanded", "false"); });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".tip")) closeTips(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    closeTips();
+    const focused = document.activeElement;
+    if (focused && focused.classList.contains("info")) focused.blur();
+  });
   document.querySelectorAll("#form-panel input").forEach((i) => i.addEventListener("change", remember));
   $("run").addEventListener("click", run);
   $("stop").addEventListener("click", () => { api.stop(); $("status").textContent = "Stopping after the current file…"; });

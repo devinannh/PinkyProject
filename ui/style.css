@@ -203,6 +203,21 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .optional { font-size: 11px; color: var(--faint); font-weight: 400; margin-left: 4px; }
 .divider { border-top: 1px solid var(--line); margin: 2px 0; }
 .type-error { color: var(--danger); font-size: 12px; }
+
+/* the "i" that holds an explanation: shown on hover, focus or click */
+.info-wrap { position: relative; display: inline-flex; vertical-align: middle; margin-left: 4px; }
+.info { width: 17px; height: 17px; padding: 0; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--card); color: var(--muted); font: italic 700 11px/1 Georgia, serif;
+  display: inline-flex; align-items: center; justify-content: center; cursor: help; }
+.info:hover:not(:disabled), .info-wrap.open .info, .info:focus-visible {
+  border-color: var(--accent-edge); color: var(--accent-text); outline: none; }
+.tip { display: none; position: absolute; left: -6px; top: calc(100% + 7px); z-index: 30;
+  width: 340px; padding: 9px 11px; border-radius: 8px;
+  background: var(--card); border: 1px solid var(--border); box-shadow: 0 6px 18px var(--shadow);
+  color: var(--text-2); font: 400 12px/1.45 "Segoe UI", "Inter", Arial, sans-serif;
+  text-transform: none; letter-spacing: normal; white-space: normal; text-align: left; }
+.tip b { color: var(--text); }
+.info-wrap:hover .tip, .info-wrap.open .tip, .info:focus-visible + .tip { display: block; }
 .chip { display: inline-flex; align-items: center; gap: 6px;
   background: var(--accent-soft); border: 1px solid var(--accent-line); color: var(--accent-text);
   border-radius: 999px; padding: 3px 4px 3px 11px; font-weight: 600; font-size: 12.5px; }

@@ -189,6 +189,11 @@ class WholeFolder(unittest.TestCase):
 
     def test_formulas_are_not_live_in_excel(self):
         fields, _ = self.run_reader()
+        from openpyxl import load_workbook
+        ws = load_workbook(self.out / "pinky-results.xlsx")["Fields"]
+        cells = [c for row in ws.iter_rows(min_row=2) for c in row if str(c.value).startswith("=HYPERLINK")]
+        self.assertTrue(cells)
+        self.assertTrue(all(c.data_type == "s" for c in cells))  # text, not a live formula
         notes = [f["Value"] for f in fields if f["Field name"] == "notes" and f["Value"]]
         self.assertTrue(notes and all(v.startswith("'=") for v in notes))
         counts = [f["Value"] for f in fields if f["Field name"] == "page_count" and f["Value"]]
@@ -519,32 +524,66 @@ class PinkSheetMode(unittest.TestCase):
             files = {r["File"]: r for r in csv.DictReader(fh)}
         return rows, files
 
-    def test_one_row_per_witness_with_the_chosen_values(self):
+    def test_one_row_per_job_with_each_witness_in_its_own_columns(self):
         self.put("Job 1", pink_sheet_pdf(witnesses=(
             ("Pat Example", "Reserved - Print Witness Copy", "Sam Counsel"),
             ("Lee Sample", "Waived", ""),
         )))
         rows, files = self.run_pink()
-        self.assertEqual([r["Witness"] for r in rows], ["Pat Example", "Lee Sample"])
-        first = rows[0]
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
         expected = {
-            "Form version": "Oct 2025", "Job Number": "999001", "Witness #": "1",
-            "R&S": "Reserved - Print Witness Copy", "R&S Sent To": "Sam Counsel",
+            "Form version": "Oct 2025", "Job Number": "999001",
+            "Witness A": "Pat Example", "Witness A R&S": "Reserved - Print Witness Copy",
+            "Witness A R&S Sent To": "Sam Counsel",
+            "Witness B": "Lee Sample", "Witness B R&S": "Waived", "Witness B R&S Sent To": "",
+            "Witness C": "", "Witness F R&S Sent To": "",
             "Original +": "2", "Notes": "First note second line",
-            "Initial QC completed": "Yes", "Initial QC by": "Becca", "30(b)(6)": "NO",
-            "Picture-in-Picture": "YES", "Depo Summary (2023 / May 2025 sheets)": "",
+            "Initial QC completed": "Yes", "Initial QC by": "Becca",
+            "30(b)(6)": "NO", "Videotaped": "NO", "Interpreter": "NO", "Cross-Depo": "NO",
+            "Picture-in-Picture": "YES", "Depo Summary (Dec 2023 / May 2025 sheets)": "",
             "Production completed": "Yes", "Production by": "DevinAnn",
             "Original: No Printed Original w/ Electronic Copy": "Yes",
             "Original: No Printed Original w/ Electronic Copy - line": "made-up line",
             "Original: No Printed Original w/ Electronic Copy - media": "E-Mail",
             "Original: Printed w/ Full-Mini-Word Printed Copy (Standard Package)": "No",
             "Copies: E-Mail Only": "Yes", "Copies: E-Mail Only - quantity": "1",
+            "USB": "No", "USB Qty": "",
             "Final QC by": "Rochelle", "Needs a look": "",
         }
         for col, value in expected.items():
-            self.assertEqual(first[col], value, col)
-        self.assertEqual((rows[1]["Witness #"], rows[1]["R&S"], rows[1]["R&S Sent To"]), ("2", "Waived", ""))
+            self.assertEqual(row[col], value, col)
         self.assertEqual(files["November/Job 1/Pink Sheet.pdf"]["Result"], "Pink Sheet read")
+
+    def test_columns_in_order(self):
+        cols = reader.pink_sheet.COLUMNS
+        self.assertEqual(cols[4:8], ["Job Number", "Witness A", "Witness A R&S", "Witness A R&S Sent To"])
+        self.assertEqual(cols[20:23], ["Witness F", "Witness F R&S", "Witness F R&S Sent To"])
+        for flag in ("30(b)(6)", "Videotaped", "Interpreter", "Cross-Depo", "Picture-in-Picture", "USB", "USB Qty"):
+            self.assertIn(flag, cols)
+        self.assertEqual(len(cols), len(set(cols)))
+
+    def test_blank_page_two_job_number_is_not_a_mismatch(self):
+        self.put("Job 1", pink_sheet_pdf(job="999001", page_two_job=""))
+        rows, _ = self.run_pink()
+        self.assertEqual(rows[0]["Needs a look"], "")
+
+    def test_excel_workbook_matches_the_csv(self):
+        from openpyxl import load_workbook
+        self.put("Job 1", pink_sheet_pdf())
+        self.put("Job 2", pink_sheet_pdf(job="999002", witnesses=(("Kim Witness", "Waived", ""),)))
+        rows, _ = self.run_pink()
+        wb = load_workbook(self.out / "pinky-results.xlsx")
+        self.assertEqual(wb.sheetnames, ["Pink Sheets", "Files"])
+        ws = wb["Pink Sheets"]
+        header = [c.value for c in ws[1]]
+        self.assertEqual(header, reader.pink_sheet.COLUMNS)
+        self.assertEqual(ws.max_row, 3)
+        by_col = {h: i for i, h in enumerate(header)}
+        jobs = sorted(r[by_col["Job Number"]].value for r in ws.iter_rows(min_row=2))
+        self.assertEqual(jobs, [999001, 999002])  # whole numbers are numbers in Excel
+        self.assertEqual(ws.freeze_panes, "A2")
+        self.assertEqual(wb["Files"].max_row, 3)
 
     def test_billing_and_checklist_ticks_never_leave_the_pdf(self):
         self.put("Job 1", pink_sheet_pdf())
@@ -560,15 +599,15 @@ class PinkSheetMode(unittest.TestCase):
         self.put("Job 1", pink_sheet_pdf(revised="December 8, 2023", dd9="YES"))
         self.put("Job 2", pink_sheet_pdf(revised="May 2, 2025", dd9="NO"))
         rows, _ = self.run_pink()
-        got = {r["Job folder"]: (r["Form version"], r["Depo Summary (2023 / May 2025 sheets)"], r["Picture-in-Picture"])
+        got = {r["Job folder"]: (r["Form version"], r["Depo Summary (Dec 2023 / May 2025 sheets)"], r["Picture-in-Picture"])
                for r in rows}
-        self.assertEqual(got, {"Job 1": ("2023", "YES", ""), "Job 2": ("May 2025", "NO", "")})
+        self.assertEqual(got, {"Job 1": ("Dec 2023", "YES", ""), "Job 2": ("May 2025", "NO", "")})
 
     def test_unknown_revision_is_reported_not_guessed(self):
         self.put("Job 1", pink_sheet_pdf(revised="January 1, 2027", dd9="YES"))
         rows, files = self.run_pink()
         self.assertEqual(rows[0]["Form version"], "Unknown (Revised January 1, 2027)")
-        self.assertEqual((rows[0]["Picture-in-Picture"], rows[0]["Depo Summary (2023 / May 2025 sheets)"]), ("", ""))
+        self.assertEqual((rows[0]["Picture-in-Picture"], rows[0]["Depo Summary (Dec 2023 / May 2025 sheets)"]), ("", ""))
         self.assertIn("Unrecognised form revision", rows[0]["Needs a look"])
         self.assertIn("Dropdown9 is YES", rows[0]["Needs a look"])
         self.assertIn("Unrecognised", files["November/Job 1/Pink Sheet.pdf"]["Note"])
@@ -583,13 +622,13 @@ class PinkSheetMode(unittest.TestCase):
         self.put("Job 1", pink_sheet_pdf(witnesses=()))
         rows, _ = self.run_pink()
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["Witness"], "")
+        self.assertEqual(rows[0]["Witness A"], "")
         self.assertIn("No witness listed", rows[0]["Needs a look"])
 
     def test_r_and_s_details_without_a_name_are_flagged(self):
         self.put("Job 1", pink_sheet_pdf(extra_rs_row=True))
         rows, _ = self.run_pink()
-        self.assertIn("Witness row 2 has R&S details but no witness name", rows[0]["Needs a look"])
+        self.assertIn("Witness row B has R&S details but no witness name", rows[0]["Needs a look"])
 
     def test_a_pdf_that_is_not_a_pink_sheet(self):
         self.put("Job 1", fillable_form(True), name="Other form.pdf")
