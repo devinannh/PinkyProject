@@ -24,6 +24,13 @@ Include zip files: no
 File names:
   - worksheet
 
+# Which form:
+#   any fillable PDF  - every field of every PDF, in fields.csv
+#   pink sheet        - the Pink Sheet's chosen values, one row per
+#                       witness, in pink-sheets.csv (no checklist ticks,
+#                       no Billing)
+Form: any fillable PDF
+
 # Other file types to FIND, besides PDFs (optional), separated by
 # semicolons, e.g.  docx; wpd; txt
 # PDFs are always read. Files of these types are listed in files.csv

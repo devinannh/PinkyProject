@@ -86,13 +86,15 @@ def _settings_from(data: dict, strict: bool = False) -> core.Settings:
         zips=bool(data.get("zips")),
         names=names,
         match=pick("match", {"partial", "complete"}, "partial"),
+        form=pick("form", {"any", "pink"}, "any"),
         out=str(data.get("out") or "").strip().strip('"'),
     )
 
 
 def _as_dict(s: core.Settings) -> dict:
     return {"folder": s.folder, "start": s.start, "look_in": s.look_in, "zips": s.zips,
-            "names": list(s.names), "match": s.match, "out": s.out, "types": list(s.types)}
+            "names": list(s.names), "match": s.match, "out": s.out, "types": list(s.types),
+            "form": s.form}
 
 
 class Api:
@@ -184,7 +186,7 @@ class Api:
                 self._state["now"] = shown
 
         try:
-            report = core.Report(out_dir, settings.start, root.name)
+            report = core.Report(out_dir, settings.start, root.name, settings.form)
             (out_dir / "settings-used.txt").write_text(settings.describe(), encoding="utf-8")
             stopped = False
             try:
@@ -199,6 +201,7 @@ class Api:
                     "lines": core.summary_lines(report, settings),
                     "main_only": settings.look_in == "main",
                     "types": [t.upper() for t in settings.types],
+                    "form": settings.form,
                     "results": str(out_dir),
                     "can_open": hasattr(os, "startfile"),
                     "files_read": self._state.get("files_read", 0),

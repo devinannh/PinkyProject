@@ -68,7 +68,7 @@ recommended not to import; **Unusable** = cannot be read reliably (section 2).
 | Notes (2 lines) | Text4, Text6 | Text | all | `production_state.remarks`, or the job's notes | Decide |
 | Witness 1–6 | Text12, Text11, Text10, Text9, Text8, Text7 (top to bottom) | Text | all | Match to the job's existing `witnesses` rows by name. Never creates a witness. | Key |
 | R&S for witness 1–6 | R&S.0 – R&S.5 | Dropdown: Reserved - Print Witness Copy / Reserved - Via E-Mail Only / Reserved - Letter Only / Waived | all | `witnesses.read_sign` (reserved or waived) and `witnesses.sig_instructions` (how) | Proposed |
-| E-mail beside each witness's R&S | E-Mail, Text15.0 – Text15.4 | Text | all | Where the R&S goes. Possibly `witnesses.email`, but that is the witness's own address | Decide |
+| **R&S Sent To** (the box beside each witness's R&S) | E-Mail, Text15.0 – Text15.4 | Text: a person's name | all | Who the R&S was sent to (DevinAnn, 2026-11-13). Portal home to confirm | Wanted |
 
 ### Page 1: Initial QC
 
@@ -136,3 +136,28 @@ lost if Billing is brought back in.
 5. **The form going forward:** if the Pink Sheet is still being filled in,
    giving "Check Box18.11" a separate box on each row would make future sheets
    fully readable (and "Text13" too, if Billing comes back).
+
+## 5. Decided 2026-11-13 (DevinAnn)
+
+DevinAnn marked the values she needs on a filled-in sheet. Pinky's **Pink Sheet
+mode** (`pink_sheet.py`) now reads exactly these into `pink-sheets.csv`, one
+row per witness:
+
+- **Page 1, wanted:** Job Number; every witness listed ("If multiple witnesses
+  are listed at the top, all must be included"), each with its **R&S** (the
+  dropdown beside the name) and **R&S Sent To** (the box to the right of that
+  dropdown, a person's name); Original +; Notes; Initial QC completed and by
+  whom; 30(b)(6), Videotaped, Interpreter, Cross-Depo and Picture-in-Picture
+  (Depo Summary on the older sheets); Production completed and by whom; the
+  five Originals choices with their lines and media; the five Copies choices
+  with their quantities and media; the USB / CD box and number.
+- **Page 1, not wanted:** the Initial QC checklist ticks and "Verify order
+  details".
+- **Page 2:** one value only for now, **Final QC Completed By**
+  ("From the 2nd page, let's just start with 1 value"). Page 2's Job Number is
+  not output; Pinky only checks it matches page 1.
+- **Billing:** out of scope for now.
+- **Job Number:** taken from the form (top left of page 1), not the folder name.
+
+Where these go in the portal is still to be decided, field by field (the
+"Proposed portal home" column above). Nothing is imported yet.

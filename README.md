@@ -51,6 +51,17 @@ setting.
    as `docx`, and press Enter. Those files are listed in files.csv by name
    and folder, with their type; they are never opened or read. A file name
    written with an ending, like `worksheet.docx`, finds only that type.
+   **Form**: *Any fillable PDF* lists every field of every PDF (fields.csv).
+   *Pink Sheet* reads the Production department's Pink Sheet into
+   **pink-sheets.csv**, one row per witness: Job Number, each witness with
+   R&S and R&S Sent To, Original +, Notes, Initial QC, the YES/NO flags,
+   Production, Originals, Copies, USB / CD, and Final QC By. Checklist ticks
+   and Billing are left out, and fields.csv is not written. Pinky reads the
+   sheet's revision from its "Revised …" date, and anything odd (no Job
+   Number, page 2 Job Number different, an unknown revision, no witness) is
+   flagged in the "Needs a look" column and in files.csv. Add `pink sheet` as
+   a file name so only the Pink Sheets are opened. See
+   `docs/pink-sheet-field-map.md`.
 4. **Save results in**: pick a folder on this computer. A new dated folder is
    made inside it each time, so earlier results are never overwritten.
 5. Press **Read PDFs** at the bottom. **Stop** halts after the current file.

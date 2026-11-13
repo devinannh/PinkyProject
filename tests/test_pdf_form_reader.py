@@ -421,6 +421,194 @@ class OtherFileTypes(unittest.TestCase):
             reader.load_settings(path)
 
 
+def pink_sheet_pdf(revised="October 13, 2025", witnesses=(("Pat Example", "Waived", "Sam Counsel"),),
+                   job="999001", page_two_job=None, dd9="YES", extra_rs_row=False) -> bytes:
+    """A MADE-UP Pink Sheet: the real form's field names, invented values.
+    Also fills a checklist tick and Billing fields with sentinel values that
+    must never appear in Pinky's output."""
+    rs_choices = ["Reserved - Print Witness Copy", "Reserved - Via E-Mail Only",
+                  "Reserved - Letter Only", "Waived"]
+    yes_no = ["YES", "NO"]
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf)
+    form = c.acroForm
+    y = [800]
+
+    def nxt():
+        y[0] -= 22
+        if y[0] < 60:
+            c.showPage()
+            y[0] = 780
+        return y[0]
+
+    def text(name, value=""):
+        form.textfield(name=name, value=value, x=60, y=nxt(), width=200, height=16)
+
+    def drop(name, options, value):
+        form.choice(name=name, options=options, value=value, x=60, y=nxt(), width=200, height=16,
+                    fieldFlags="combo")
+
+    def tick(name, on):
+        form.checkbox(name=name, checked=on, x=60, y=nxt(), size=12)
+
+    c.drawString(300, 30, f"Revised {revised}")
+    text("Job Number", job)
+    text("Text3", "2")
+    text("Text4", "First note")
+    text("Text6", "second line")
+    names = ["Text12", "Text11", "Text10", "Text9", "Text8", "Text7"]
+    sent = ["E-Mail", "Text15.0", "Text15.1", "Text15.2", "Text15.3", "Text15.4"]
+    for i in range(6):
+        w = witnesses[i] if i < len(witnesses) else ("", "", "")
+        text(names[i], w[0])
+        drop(f"R&S.{i}", rs_choices, w[1] or rs_choices[0])
+        text(sent[i], w[2] if i < len(witnesses) or not extra_rs_row else "Orphan Person")
+    tick("Check Box18.0.0", True)
+    drop("Dropdown17.0", ["Becca", "Rochelle"], "Becca")
+    for n in ("Dropdown7", "Dropdown8", "Dropdown1.1", "Dropdown1.2"):
+        drop(n, yes_no, "NO")
+    drop("Dropdown9", yes_no, dd9)
+    tick("Check Box19.0", True)
+    drop("Dropdown4", ["DevinAnn", "Becca"], "DevinAnn")
+    tick("Check Box19.1.1.1.1.1.0", True)
+    text("Text21.1.1.2", "made-up line")
+    drop("Dropdown20.1", ["E-Mail", "USB", "N/A"], "E-Mail")
+    tick("Check Box19.1.0", False)
+    tick("Check Box19.1.1.1.1.1.5.0", True)
+    text("Text22.2.2", "1")
+    tick("Check Box25", False)
+    text("Text26", "")
+    # sentinels that must never be output: a checklist tick and Billing
+    tick("Check Box18.5", True)
+    drop("Dropdown5", ["Yes", "No"], "Yes")
+    text("Text13", "SENTINEL-BILLING-4242")
+    c.showPage()
+    c.drawString(60, 800, "page two")
+    form.textfield(name="Text28", value=page_two_job if page_two_job is not None else job,
+                   x=60, y=760, width=200, height=16)
+    form.choice(name="Dropdown6", options=["Rochelle", "Becca"], value="Rochelle",
+                x=60, y=730, width=200, height=16, fieldFlags="combo")
+    c.showPage()
+    c.save()
+    # reportlab cannot draw an empty dropdown, so unused witness rows' R&S are
+    # drawn with an answer and cleared here, as they are on the real blank form
+    unused = {f"R&S.{i}" for i in range(len(witnesses), 6)}
+    return clear_answers(buf.getvalue(), unused) if unused else buf.getvalue()
+
+
+class PinkSheetMode(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name)
+        self.root = self.base / "2026"
+        self.out = self.base / "results"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def put(self, job_folder, data, name="Pink Sheet.pdf"):
+        folder = self.root / "November" / job_folder
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_bytes(data)
+
+    def run_pink(self):
+        self.assertEqual(reader.main([str(self.root), "--form", "pink", "--out", str(self.out), "--quiet"]), 0)
+        with open(self.out / "pink-sheets.csv", encoding="utf-8-sig") as fh:
+            rows = list(csv.DictReader(fh))
+        with open(self.out / "files.csv", encoding="utf-8-sig") as fh:
+            files = {r["File"]: r for r in csv.DictReader(fh)}
+        return rows, files
+
+    def test_one_row_per_witness_with_the_chosen_values(self):
+        self.put("Job 1", pink_sheet_pdf(witnesses=(
+            ("Pat Example", "Reserved - Print Witness Copy", "Sam Counsel"),
+            ("Lee Sample", "Waived", ""),
+        )))
+        rows, files = self.run_pink()
+        self.assertEqual([r["Witness"] for r in rows], ["Pat Example", "Lee Sample"])
+        first = rows[0]
+        expected = {
+            "Form version": "Oct 2025", "Job Number": "999001", "Witness #": "1",
+            "R&S": "Reserved - Print Witness Copy", "R&S Sent To": "Sam Counsel",
+            "Original +": "2", "Notes": "First note second line",
+            "Initial QC completed": "Yes", "Initial QC by": "Becca", "30(b)(6)": "NO",
+            "Picture-in-Picture": "YES", "Depo Summary (2023 / May 2025 sheets)": "",
+            "Production completed": "Yes", "Production by": "DevinAnn",
+            "Original: No Printed Original w/ Electronic Copy": "Yes",
+            "Original: No Printed Original w/ Electronic Copy - line": "made-up line",
+            "Original: No Printed Original w/ Electronic Copy - media": "E-Mail",
+            "Original: Printed w/ Full-Mini-Word Printed Copy (Standard Package)": "No",
+            "Copies: E-Mail Only": "Yes", "Copies: E-Mail Only - quantity": "1",
+            "Final QC by": "Rochelle", "Needs a look": "",
+        }
+        for col, value in expected.items():
+            self.assertEqual(first[col], value, col)
+        self.assertEqual((rows[1]["Witness #"], rows[1]["R&S"], rows[1]["R&S Sent To"]), ("2", "Waived", ""))
+        self.assertEqual(files["November/Job 1/Pink Sheet.pdf"]["Result"], "Pink Sheet read")
+
+    def test_billing_and_checklist_ticks_never_leave_the_pdf(self):
+        self.put("Job 1", pink_sheet_pdf())
+        self.run_pink()
+        written = (self.out / "pink-sheets.csv").read_text(encoding="utf-8-sig")
+        self.assertNotIn("SENTINEL-BILLING-4242", written)
+        self.assertFalse((self.out / "fields.csv").exists())
+        header = written.splitlines()[0]
+        for word in ("Billing", "Rush", "COD", "Check Case", "Text13"):
+            self.assertNotIn(word, header)
+
+    def test_older_sheets_put_dropdown9_under_depo_summary(self):
+        self.put("Job 1", pink_sheet_pdf(revised="December 8, 2023", dd9="YES"))
+        self.put("Job 2", pink_sheet_pdf(revised="May 2, 2025", dd9="NO"))
+        rows, _ = self.run_pink()
+        got = {r["Job folder"]: (r["Form version"], r["Depo Summary (2023 / May 2025 sheets)"], r["Picture-in-Picture"])
+               for r in rows}
+        self.assertEqual(got, {"Job 1": ("2023", "YES", ""), "Job 2": ("May 2025", "NO", "")})
+
+    def test_unknown_revision_is_reported_not_guessed(self):
+        self.put("Job 1", pink_sheet_pdf(revised="January 1, 2027", dd9="YES"))
+        rows, files = self.run_pink()
+        self.assertEqual(rows[0]["Form version"], "Unknown (Revised January 1, 2027)")
+        self.assertEqual((rows[0]["Picture-in-Picture"], rows[0]["Depo Summary (2023 / May 2025 sheets)"]), ("", ""))
+        self.assertIn("Unrecognised form revision", rows[0]["Needs a look"])
+        self.assertIn("Dropdown9 is YES", rows[0]["Needs a look"])
+        self.assertIn("Unrecognised", files["November/Job 1/Pink Sheet.pdf"]["Note"])
+
+    def test_page_two_job_number_is_checked(self):
+        self.put("Job 1", pink_sheet_pdf(job="999001", page_two_job="999002"))
+        rows, _ = self.run_pink()
+        self.assertIn("Page 2 Job Number differs (999002)", rows[0]["Needs a look"])
+        self.assertNotIn("Text28", rows[0])
+
+    def test_sheet_with_no_witness_still_gives_a_row(self):
+        self.put("Job 1", pink_sheet_pdf(witnesses=()))
+        rows, _ = self.run_pink()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["Witness"], "")
+        self.assertIn("No witness listed", rows[0]["Needs a look"])
+
+    def test_r_and_s_details_without_a_name_are_flagged(self):
+        self.put("Job 1", pink_sheet_pdf(extra_rs_row=True))
+        rows, _ = self.run_pink()
+        self.assertIn("Witness row 2 has R&S details but no witness name", rows[0]["Needs a look"])
+
+    def test_a_pdf_that_is_not_a_pink_sheet(self):
+        self.put("Job 1", fillable_form(True), name="Other form.pdf")
+        rows, files = self.run_pink()
+        self.assertEqual(rows, [])
+        self.assertIn("Not a Pink Sheet", files["November/Job 1/Other form.pdf"]["Note"])
+
+    def test_settings_file_and_app_carry_the_choice(self):
+        path = self.base / "s.txt"
+        path.write_text("Form: Pink Sheet\n")
+        settings = reader.load_settings(path)
+        self.assertEqual(settings.form, "pink")
+        reader.save_settings(settings, path)
+        self.assertEqual(reader.load_settings(path).form, "pink")
+        import pdf_form_reader_app as app_module
+        self.assertEqual(app_module._settings_from({"form": "pink"}).form, "pink")
+        self.assertEqual(app_module._settings_from({"form": "elsewhere"}).form, "any")
+
+
 class SavedSettings(unittest.TestCase):
     def test_save_and_load_give_back_the_same_settings(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -48,6 +48,7 @@ function current() {
     zips: $("zips").checked,
     names: names.slice(),
     types: types.slice(),
+    form: radio("form"),
     match: radio("match"),
     out: $("out").value.trim(),
   };
@@ -59,6 +60,8 @@ function fill(s) {
   $("zips").checked = !!s.zips;
   names = (s.names || []).slice();
   types = (s.types || []).slice();
+  setRadio("form", s.form || "any");
+  drawFormNote();
   setRadio("match", s.match || "partial");
   $("out").value = s.out || "";
   drawNames();
@@ -121,6 +124,12 @@ async function addType() {
   return true;
 }
 
+const FORM_NOTES = {
+  any: "Lists every field of every PDF read, in fields.csv.",
+  pink: "Reads the Pink Sheet's chosen values into pink-sheets.csv, one row per witness: Job Number, witnesses with R&S and R&S Sent To, Original +, Notes, Initial QC, the YES/NO flags, Production, Originals, Copies, USB, and Final QC By. Checklist ticks and Billing are left out. Tip: add \u201cpink sheet\u201d as a file name.",
+};
+function drawFormNote() { $("form-note").textContent = FORM_NOTES[radio("form")] || ""; }
+
 function drawExample() {
   const word = names[0] || "worksheet";
   const cap = word.replace(/\.pdf$/i, "");
@@ -158,20 +167,22 @@ function drawDone(st) {
   const c = st.counts;
   const parts = [];
   if (st.state === "stopped") parts.push(banner("stopped", ICON_WARN, "Stopped. These results cover only what was read before Stop."));
-  else parts.push(banner("ok", ICON_OK, `Finished. ${c.fields} form field${c.fields === 1 ? "" : "s"} listed.`));
-  parts.push(el("div", { class: "tiles" },
-    el("div", { class: "tile" }, el("div", { class: "n" }, c.pdfs), el("div", { class: "t" }, "PDFs read")),
-    el("div", { class: "tile" }, el("div", { class: "n" }, c.with_fields), el("div", { class: "t" }, "with form fields")),
-    el("div", { class: "tile" }, el("div", { class: "n" }, c.fields), el("div", { class: "t" }, "form fields listed")),
-    el("div", { class: "tile" + (c.problems ? " warn" : "") }, el("div", { class: "n" }, c.problems),
-      el("div", { class: "t" }, "needing a look (files.csv)")),
-  ));
+  const pink = st.form === "pink";
+  const tile = (n, t, warn) => el("div", { class: "tile" + (warn ? " warn" : "") }, el("div", { class: "n" }, n), el("div", { class: "t" }, t));
+  if (st.state !== "stopped") parts.push(banner("ok", ICON_OK, pink
+    ? `Finished. ${c.sheets} Pink Sheet${c.sheets === 1 ? "" : "s"} read.`
+    : `Finished. ${c.fields} form field${c.fields === 1 ? "" : "s"} listed.`));
+  parts.push(pink
+    ? el("div", { class: "tiles" }, tile(c.pdfs, "PDFs read"), tile(c.sheets, "Pink Sheets"),
+        tile(c.witness_rows, "witness rows"), tile(c.problems, "needing a look (files.csv)", c.problems))
+    : el("div", { class: "tiles" }, tile(c.pdfs, "PDFs read"), tile(c.with_fields, "with form fields"),
+        tile(c.fields, "form fields listed"), tile(c.problems, "needing a look (files.csv)", c.problems)));
   if (st.types && st.types.length) parts.push(el("ul", { class: "lines" }, el("li", {},
     `Other files found (${st.types.join(", ")}): listed, not read`, el("b", {}, c.other_found))));
   if (st.main_only) parts.push(el("div", { class: "muted" }, "Subfolders inside job folders were not opened (main job folder only)."));
   parts.push(el("div", { class: "label" }, "Saved in"), el("div", { class: "where" }, st.results));
   parts.push(el("div", { class: "files-list" },
-    el("b", {}, "fields.csv"), " one row per form field", el("br"),
+    el("b", {}, pink ? "pink-sheets.csv" : "fields.csv"), pink ? " one row per witness on each Pink Sheet" : " one row per form field", el("br"),
     el("b", {}, "files.csv"), " one row per file found, and any problems", el("br"),
     el("b", {}, "settings-used.txt"), " the choices that made these results"));
   parts.push(el("div", { class: "privacy" }, "These files hold real client data. Keep them on this computer and delete them when done."));
@@ -243,6 +254,7 @@ async function start() {
   $("new-type").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addType(); } });
   $("new-name").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addName(); } });
   document.querySelectorAll('input[name="match"]').forEach((r) => r.addEventListener("change", drawExample));
+  document.querySelectorAll('input[name="form"]').forEach((r) => r.addEventListener("change", drawFormNote));
   document.querySelectorAll("#form-panel input").forEach((i) => i.addEventListener("change", remember));
   $("run").addEventListener("click", run);
   $("stop").addEventListener("click", () => { api.stop(); $("status").textContent = "Stopping after the current file…"; });

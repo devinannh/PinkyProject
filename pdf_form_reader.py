@@ -37,6 +37,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+import pink_sheet
+
 try:
     from pypdf import PdfReader
     from pypdf.generic import ArrayObject, IndirectObject, NameObject
@@ -126,6 +128,7 @@ class PdfResult:
     result: str
     note: str = ""
     fields: list[FieldRow] = field(default_factory=list)
+    page_one_text: str = ""   # read only when asked for (Pink Sheet mode)
 
 
 # --------------------------------------------------------------------------
@@ -279,8 +282,10 @@ def _describe(attrs: dict, widgets) -> tuple[str, str, bool, str, str] | None:
     return "Other (" + (ftype or "unknown") + ")", raw, bool(raw.strip()), "", raw
 
 
-def read_pdf(source) -> PdfResult:
-    """Read one PDF's form. source: the PDF's bytes, or an open file."""
+def read_pdf(source, page_one_text: bool = False) -> PdfResult:
+    """Read one PDF's form. source: the PDF's bytes, or an open file.
+    page_one_text: also keep page 1's printed text (Pink Sheet mode reads the
+    form's revision date from it)."""
     try:
         stream = io.BytesIO(source) if isinstance(source, (bytes, bytearray)) else source
         reader = PdfReader(stream, strict=False)
@@ -347,7 +352,13 @@ def read_pdf(source) -> PdfResult:
             )
         if not rows:
             return PdfResult(RESULT_NO_FORM, "The form has only buttons, no answer fields.")
-        return PdfResult(RESULT_READ, " ".join(notes), rows)
+        text = ""
+        if page_one_text and reader.pages:
+            try:
+                text = reader.pages[0].extract_text() or ""
+            except Exception:
+                text = ""  # the fields are still good; the revision is reported unknown
+        return PdfResult(RESULT_READ, " ".join(notes), rows, text)
     except Exception as exc:
         return PdfResult(RESULT_UNREADABLE, f"Form could not be read ({type(exc).__name__})")
 
@@ -381,20 +392,31 @@ def _long_path(path: Path) -> str:
 
 
 class Report:
-    def __init__(self, out_dir: Path, start: str, root_name: str = ""):
+    """Writes the results. form="any": fields.csv, every field of every PDF.
+    form="pink": pink-sheets.csv, the Pink Sheet's chosen values, one row per
+    witness; fields.csv is not written, so nothing else on the sheet (Billing
+    included) leaves the PDF."""
+
+    def __init__(self, out_dir: Path, start: str, root_name: str = "", form: str = "any"):
         self.out_dir = out_dir
         self.start = start
         self.root_name = root_name
+        self.form = form
         out_dir.mkdir(parents=True, exist_ok=False)
-        self._fields_fh = open(out_dir / "fields.csv", "w", newline="", encoding="utf-8-sig")
+        if form == "pink":
+            self._fields_fh = open(out_dir / "pink-sheets.csv", "w", newline="", encoding="utf-8-sig")
+            self.fields = csv.writer(self._fields_fh)
+            self.fields.writerow(pink_sheet.COLUMNS)
+        else:
+            self._fields_fh = open(out_dir / "fields.csv", "w", newline="", encoding="utf-8-sig")
+            self.fields = csv.writer(self._fields_fh)
+            self.fields.writerow(FIELD_COLUMNS)
         self._files_fh = open(out_dir / "files.csv", "w", newline="", encoding="utf-8-sig")
-        self.fields = csv.writer(self._fields_fh)
         self.files = csv.writer(self._files_fh)
-        self.fields.writerow(FIELD_COLUMNS)
         self.files.writerow(FILE_COLUMNS)
         self.counts = {
             "pdfs": 0, "with_fields": 0, "fields": 0, "problems": 0,
-            "other_found": 0,
+            "other_found": 0, "sheets": 0, "witness_rows": 0,
         }
 
     def where(self, parts: list[str]) -> tuple[str, str]:
@@ -407,6 +429,8 @@ class Report:
         return ("", self.root_name)
 
     def add(self, parts: list[str], shown_path: str, result: PdfResult, matched: str = ""):
+        if self.form == "pink":
+            return self._add_pink(parts, shown_path, result, matched)
         month, job = self.where(parts)
         filled = sum(1 for r in result.fields if r.filled)
         self.counts["pdfs"] += 1
@@ -430,6 +454,29 @@ class Report:
                     )
                 ]
             )
+
+    def _add_pink(self, parts, shown_path, result: PdfResult, matched: str):
+        month, job = self.where(parts)
+        self.counts["pdfs"] += 1
+        by_name = {f.name: f for f in result.fields}
+        if result.result != RESULT_READ or not pink_sheet.is_pink_sheet(by_name):
+            self.counts["problems"] += 1
+            note = result.note if result.result != RESULT_READ else "Not a Pink Sheet (its fields do not match the form)"
+            self.files.writerow([_safe_cell(v) for v in (month, job, shown_path, file_type(shown_path).upper(),
+                                                         matched, result.result, len(result.fields), 0, note)])
+            return
+        rows = pink_sheet.rows(by_name, result.page_one_text)
+        self.counts["sheets"] += 1
+        self.counts["witness_rows"] += sum(1 for r in rows if r["Witness"])
+        needs = rows[0]["Needs a look"]
+        if needs:
+            self.counts["problems"] += 1
+        self.files.writerow([_safe_cell(v) for v in (month, job, shown_path, file_type(shown_path).upper(),
+                                                     matched, "Pink Sheet read", len(result.fields),
+                                                     sum(1 for f in result.fields if f.filled), needs)])
+        for row in rows:
+            row = {"Month": month, "Job folder": job, "File": shown_path, **row}
+            self.fields.writerow([_safe_cell(row.get(c, "")) for c in pink_sheet.COLUMNS])
 
     def skip(self, parts: list[str], shown_path: str, reason: str):
         month, job = self.where(parts)
@@ -477,6 +524,7 @@ class Settings:
     match: str = "partial"       # partial | complete
     out: str = ""
     types: list[str] = field(default_factory=list)  # extra file types to FIND (PDFs are always read)
+    form: str = "any"            # any = every field of any fillable PDF; pink = Pink Sheet columns
 
     def to_text(self) -> str:
         """The settings in reader-settings.txt form (load_settings reads it back)."""
@@ -488,6 +536,7 @@ class Settings:
             f"Include zip files: {'yes' if self.zips else 'no'}\n"
             f"File names:\n{names}"
             f"Match: {self.match}\n"
+            f"Form: {'pink sheet' if self.form == 'pink' else 'any fillable PDF'}\n"
             f"Other file types: {'; '.join(self.types)}\n"
             f"Results folder: {self.out}\n"
         )
@@ -506,6 +555,7 @@ _CHOICES = {
         "job folder and subfolders": "all",
     }),
     "include zip files": ("zips", {"yes": True, "y": True, "no": False, "n": False}),
+    "form": ("form", {"any fillable pdf": "any", "any": "any", "pink sheet": "pink", "pink": "pink"}),
     "match": ("match", {"partial": "partial", "complete": "complete", "exact": "complete", "full": "complete"}),
 }
 
@@ -519,7 +569,7 @@ def _choice(key: str, value: str, where: str):
     return attr, picked
 
 
-_PRIMARY_WORDS = {"year", "month", "job", "main job folder", "all subfolders", "yes", "no", "partial", "complete"}
+_PRIMARY_WORDS = {"any fillable pdf", "pink sheet", "year", "month", "job", "main job folder", "all subfolders", "yes", "no", "partial", "complete"}
 
 
 def load_settings(path: Path) -> Settings:
@@ -684,7 +734,7 @@ def _read_zip(data: bytes, parts: list[str], shown: str, report: Report, setting
             if is_zip:
                 _read_zip(inner, parts, inner_shown, report, settings, depth + 1)
             else:
-                report.add(parts, inner_shown, read_pdf(inner), matched or "")
+                report.add(parts, inner_shown, read_pdf(inner, settings.form == "pink"), matched or "")
 
 
 def scan(root: Path, report: Report, settings: Settings, quiet: bool = False,
@@ -741,7 +791,7 @@ def scan(root: Path, report: Report, settings: Settings, quiet: bool = False,
                     else:
                         # pypdf reads only the parts it needs (the form and
                         # the page index), not the whole file
-                        report.add(parts, shown, read_pdf(fh), matched)
+                        report.add(parts, shown, read_pdf(fh, settings.form == "pink"), matched)
             except Exception as exc:
                 report.skip(parts, shown, f"Could not be opened ({type(exc).__name__})")
                 continue
@@ -772,6 +822,8 @@ def build_settings(args) -> Settings:
         settings.names = list(args.name)
     if args.match:
         settings.match = args.match
+    if args.form:
+        settings.form = args.form
     if args.type:
         try:
             settings.types = clean_types(args.type)
@@ -806,6 +858,19 @@ def dated_folder_name() -> str:
 
 def summary_lines(report: Report, settings: Settings) -> list[str]:
     c = report.counts
+    if settings.form == "pink":
+        lines = [
+            f"PDFs read: {c['pdfs']}",
+            f"   Pink Sheets: {c['sheets']}",
+            f"   witness rows: {c['witness_rows']}",
+            f"   needing a look: {c['problems']}  (see files.csv)",
+        ]
+        if settings.types:
+            lines.append(f"Other files found ({', '.join(t.upper() for t in settings.types)}), "
+                         f"listed in files.csv, not read: {c['other_found']}")
+        if settings.look_in == "main":
+            lines.append("Subfolders inside job folders were not opened (main job folder only).")
+        return lines
     lines = [
         f"PDFs read: {c['pdfs']}",
         f"   with form fields: {c['with_fields']}",
@@ -833,6 +898,8 @@ def main(argv=None) -> int:
     parser.add_argument("--zips", choices=["yes", "no"], help="Read PDFs inside zip files.")
     parser.add_argument("--name", action="append",
                         help="A file name to look for. Repeat for several.")
+    parser.add_argument("--form", choices=["any", "pink"],
+                        help="any = every field of any fillable PDF; pink = the Pink Sheet's chosen values.")
     parser.add_argument("--type", action="append",
                         help="Another file type to find and list (e.g. docx). Repeat for several. PDFs are always read.")
     parser.add_argument("--match", choices=["partial", "complete"],
@@ -862,7 +929,7 @@ def main(argv=None) -> int:
         print(problem)
         return 2
 
-    report = Report(out_dir, settings.start, root.name)
+    report = Report(out_dir, settings.start, root.name, settings.form)
     # A record of what produced these results, kept beside them.
     (out_dir / "settings-used.txt").write_text(settings.describe(), encoding="utf-8")
     if not args.quiet:
