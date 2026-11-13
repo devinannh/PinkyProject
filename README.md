@@ -181,9 +181,9 @@ Open a command window in this folder (see setup, step 3) and type:
 On Windows you can also **double-click `pdf_form_reader.py`**. The window
 stays open at the end until you press Enter.
 
-The screen shows the settings it used and a count of what it did: PDFs read,
-PDFs passed over because the name did not match, and zip files not opened.
-If the count looks wrong, check the settings and run it again into a new
+The screen shows the settings it used and a count of what it read: PDFs
+read, form fields listed, and files needing a look. Files passed over are
+not counted. If the results look wrong, check the settings and run it again into a new
 results folder (it never overwrites earlier results).
 
 For a one-off run without editing the file, settings can be typed after the

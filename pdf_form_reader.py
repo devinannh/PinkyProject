@@ -279,9 +279,11 @@ def _describe(attrs: dict, widgets) -> tuple[str, str, bool, str, str] | None:
     return "Other (" + (ftype or "unknown") + ")", raw, bool(raw.strip()), "", raw
 
 
-def read_pdf(data: bytes) -> PdfResult:
+def read_pdf(source) -> PdfResult:
+    """Read one PDF's form. source: the PDF's bytes, or an open file."""
     try:
-        reader = PdfReader(io.BytesIO(data), strict=False)
+        stream = io.BytesIO(source) if isinstance(source, (bytes, bytearray)) else source
+        reader = PdfReader(stream, strict=False)
     except Exception as exc:  # damaged or not really a PDF
         return PdfResult(RESULT_UNREADABLE, f"Not a readable PDF ({type(exc).__name__})")
 
@@ -392,7 +394,7 @@ class Report:
         self.files.writerow(FILE_COLUMNS)
         self.counts = {
             "pdfs": 0, "with_fields": 0, "fields": 0, "problems": 0,
-            "name_skipped": 0, "place_skipped": 0, "zips_not_opened": 0, "other_found": 0,
+            "other_found": 0,
         }
 
     def where(self, parts: list[str]) -> tuple[str, str]:
@@ -644,7 +646,7 @@ def name_matches(filename: str, settings: Settings) -> str | None:
 
 def _read_zip(data: bytes, parts: list[str], shown: str, report: Report, settings: Settings, depth: int):
     try:
-        archive = zipfile.ZipFile(io.BytesIO(data))
+        archive = zipfile.ZipFile(io.BytesIO(data) if isinstance(data, (bytes, bytearray)) else data)
     except Exception:
         report.skip(parts, shown, "Zip file could not be opened")
         return
@@ -661,7 +663,6 @@ def _read_zip(data: bytes, parts: list[str], shown: str, report: Report, setting
                 continue
             matched = None if is_zip else name_matches(inner_name, settings)
             if not is_zip and matched is None:
-                report.counts["name_skipped"] += 1
                 continue
             if ftype and ftype != "pdf":
                 report.found(parts, inner_shown, matched)
@@ -716,18 +717,14 @@ def scan(root: Path, report: Report, settings: Settings, quiet: bool = False,
             shown = "/".join(parts)
             in_place = depth == job_depth if settings.look_in == "main" else depth >= job_depth
             if not in_place:
-                if not is_zip:
-                    report.counts["place_skipped"] += 1
                 continue
             if is_zip:
                 if not settings.zips:
-                    report.counts["zips_not_opened"] += 1
                     continue
                 matched = None
             else:
                 matched = name_matches(name, settings)
                 if matched is None:
-                    report.counts["name_skipped"] += 1
                     continue
                 if ftype != "pdf":
                     # Listed by name and place only; the file is never opened.
@@ -738,14 +735,16 @@ def scan(root: Path, report: Report, settings: Settings, quiet: bool = False,
                     continue
             try:
                 with open(_long_path(path), "rb") as fh:
-                    data = fh.read()
+                    if is_zip:
+                        # zipfile reads only the entries it is asked for
+                        _read_zip(fh, parts, shown, report, settings, depth=1)
+                    else:
+                        # pypdf reads only the parts it needs (the form and
+                        # the page index), not the whole file
+                        report.add(parts, shown, read_pdf(fh), matched)
             except Exception as exc:
                 report.skip(parts, shown, f"Could not be opened ({type(exc).__name__})")
                 continue
-            if is_zip:
-                _read_zip(data, parts, shown, report, settings, depth=1)
-            else:
-                report.add(parts, shown, read_pdf(data), matched)
             seen += 1
             if on_progress:
                 on_progress(seen, shown)
@@ -812,16 +811,12 @@ def summary_lines(report: Report, settings: Settings) -> list[str]:
         f"   with form fields: {c['with_fields']}",
         f"   form fields listed: {c['fields']}",
         f"   needing a look: {c['problems']}  (see files.csv)",
-        f"Files passed over, name did not match: {c['name_skipped']}",
-        f"Files passed over, outside any job folder: {c['place_skipped']}",
     ]
     if settings.types:
-        lines.insert(4, f"Other files found ({', '.join(t.upper() for t in settings.types)}), "
+        lines.append(f"Other files found ({', '.join(t.upper() for t in settings.types)}), "
                         f"listed in files.csv, not read: {c['other_found']}")
     if settings.look_in == "main":
         lines.append("Subfolders inside job folders were not opened (main job folder only).")
-    if c["zips_not_opened"]:
-        lines.append(f"Zip files not opened (zip files are switched off): {c['zips_not_opened']}")
     return lines
 
 

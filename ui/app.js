@@ -166,13 +166,8 @@ function drawDone(st) {
     el("div", { class: "tile" + (c.problems ? " warn" : "") }, el("div", { class: "n" }, c.problems),
       el("div", { class: "t" }, "needing a look (files.csv)")),
   ));
-  const lines = el("ul", { class: "lines" },
-    el("li", {}, "Passed over: name did not match", el("b", {}, c.name_skipped)),
-    el("li", {}, "Passed over: outside any job folder", el("b", {}, c.place_skipped)));
-  if (st.types && st.types.length) lines.prepend(el("li", {},
-    `Other files found (${st.types.join(", ")}): listed, not read`, el("b", {}, c.other_found)));
-  if (c.zips_not_opened) lines.append(el("li", {}, "Zip files not opened", el("b", {}, c.zips_not_opened)));
-  parts.push(lines);
+  if (st.types && st.types.length) parts.push(el("ul", { class: "lines" }, el("li", {},
+    `Other files found (${st.types.join(", ")}): listed, not read`, el("b", {}, c.other_found))));
   if (st.main_only) parts.push(el("div", { class: "muted" }, "Subfolders inside job folders were not opened (main job folder only)."));
   parts.push(el("div", { class: "label" }, "Saved in"), el("div", { class: "where" }, st.results));
   parts.push(el("div", { class: "files-list" },

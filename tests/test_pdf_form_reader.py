@@ -288,16 +288,15 @@ class ChoosingWhatToRead(unittest.TestCase):
         self.assertEqual(len(got), 4)
         self.assertIn("March/Job 140205/Notice.pdf", got)
 
-    def test_counts_what_was_passed_over(self):
+    def test_only_what_was_read_is_counted(self):
         settings = reader.Settings(folder=str(self.root), names=["worksheet"], match="complete")
         self.out.mkdir()
         rep = reader.Report(self.out / "r", "year", "2026")
         reader.scan(self.root, rep, settings, quiet=True)
         rep.close()
         self.assertEqual(rep.counts["pdfs"], 2)
-        self.assertEqual(rep.counts["name_skipped"], 2)    # Smith Worksheet FINAL, Notice
-        self.assertEqual(rep.counts["place_skipped"], 1)   # the loose one in March
-        self.assertEqual(rep.counts["zips_not_opened"], 1)
+        # Files passed over are not counted (owner's choice, to keep runs lean).
+        self.assertFalse({"name_skipped", "place_skipped", "zips_not_opened"} & set(rep.counts))
 
     def write_settings(self, text):
         path = self.base / "my-settings.txt"
@@ -485,7 +484,6 @@ class AppBehindThePage(unittest.TestCase):
         st = self.api.wait(30)
         self.assertEqual(st["state"], "done")
         self.assertEqual(st["counts"]["pdfs"], 1)
-        self.assertEqual(st["counts"]["name_skipped"], 1)
         with open(Path(st["results"]) / "files.csv", encoding="utf-8-sig") as fh:
             files = [r["File"] for r in csv.DictReader(fh)]
         self.assertEqual(files, ["March/Job 140205/Smith Worksheet.pdf"])
