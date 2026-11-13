@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PDF Form Reader</title>
+<link rel="stylesheet" href="style.css">
+<script>
+/* Light or dark before anything is drawn, following Windows. */
+(function () {
+  var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+}());
+</script>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div id="app-title">Form Reader</div>
+    <div id="app-subtitle">Fillable PDFs</div>
+    <nav id="steps">
+      <div class="step active" data-card="card-folder"><span>1</span> Folder</div>
+      <div class="step" data-card="card-where"><span>2</span> Where to Look</div>
+      <div class="step" data-card="card-names"><span>3</span> File Names</div>
+      <div class="step" data-card="card-results-folder"><span>4</span> Save Results</div>
+    </nav>
+    <div class="side-note"><b>Runs only on this computer.</b><br>Nothing is sent anywhere, and your job files are never changed.</div>
+  </aside>
+
+  <main>
+    <div id="content">
+      <div id="form-panel">
+
+        <section class="card" id="card-folder">
+          <div class="card-title"><span class="num">1</span>Folder to read</div>
+          <div class="file-row">
+            <input type="text" id="folder" placeholder="e.g. D:\Jobs\2026" spellcheck="false">
+            <button type="button" id="browse-folder">Browse&hellip;</button>
+          </div>
+          <div class="row">
+            <span class="label">This folder is</span>
+            <div class="pills" id="start">
+              <label><input type="radio" name="start" value="year"> A year</label>
+              <label><input type="radio" name="start" value="month"> A month</label>
+              <label><input type="radio" name="start" value="job"> One job</label>
+            </div>
+          </div>
+        </section>
+
+        <section class="card" id="card-where">
+          <div class="card-title"><span class="num">2</span>Where to look in each job folder</div>
+          <div class="choices">
+            <label class="choice">
+              <input type="radio" name="look_in" value="main">
+              <span class="choice-name">Main job folder only</span>
+              <span class="muted">Files sitting directly in the job folder. Subfolders are not opened.</span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="look_in" value="all">
+              <span class="choice-name">Job folder and all subfolders</span>
+              <span class="muted">Everything inside the job folder, however deep.</span>
+            </label>
+          </div>
+          <label class="check"><input type="checkbox" id="zips"> Also read PDFs inside zip files</label>
+        </section>
+
+        <section class="card" id="card-names">
+          <div class="card-title"><span class="num">3</span>File names to look for</div>
+          <div id="names"></div>
+          <div class="file-row">
+            <input type="text" id="new-name" placeholder="Type a file name and press Enter" spellcheck="false">
+            <button type="button" id="add-name">Add</button>
+          </div>
+          <div class="row">
+            <span class="label">Match</span>
+            <div class="pills" id="match">
+              <label><input type="radio" name="match" value="partial"> Partial: the name contains it</label>
+              <label><input type="radio" name="match" value="complete"> Complete: the name is exactly it</label>
+            </div>
+          </div>
+          <div class="example" id="example"></div>
+        </section>
+
+        <section class="card" id="card-results-folder">
+          <div class="card-title"><span class="num">4</span>Save results in</div>
+          <div class="file-row">
+            <input type="text" id="out" spellcheck="false">
+            <button type="button" id="browse-out">Browse&hellip;</button>
+          </div>
+          <div class="muted">A new dated folder is made here each time, so earlier results are never overwritten.
+            Do not choose a OneDrive, iCloud, Dropbox, Google Drive or Box folder: those copy files to the cloud.</div>
+        </section>
+      </div>
+
+      <div id="results-panel">
+        <section class="card" id="results-card">
+          <div class="card-title">Results</div>
+          <div id="results-body"></div>
+        </section>
+      </div>
+    </div>
+
+    <div id="footer">
+      <button type="button" class="primary" id="run">Read PDFs</button>
+      <button type="button" id="stop" disabled>Stop</button>
+      <span class="status" id="status">Ready.</span>
+      <span class="spacer"></span>
+      <button type="button" id="open-results" disabled>Open results folder</button>
+    </div>
+  </main>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

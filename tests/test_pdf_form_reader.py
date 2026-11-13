@@ -375,21 +375,10 @@ class NameMatching(unittest.TestCase):
         self.assertEqual(self.match("anything.pdf", [], "partial"), "")
 
 
-def _window_available():
-    try:
-        import tkinter
-        tkinter.Tk().destroy()
-        return True
-    except Exception:
-        return False
-
-
-@unittest.skipUnless(_window_available(), "needs a screen and tkinter")
-class AppWindow(unittest.TestCase):
-    """The window version, driven the way a person would use it."""
+class AppBehindThePage(unittest.TestCase):
+    """The desktop app's Api: what the page calls, driven as the page drives it."""
 
     def setUp(self):
-        import tkinter
         self.tmp = tempfile.TemporaryDirectory()
         base = Path(self.tmp.name)
         self._old_local = os.environ.get("LOCALAPPDATA")
@@ -401,65 +390,70 @@ class AppWindow(unittest.TestCase):
         (base / "results").mkdir()
         self.base = base
         import pdf_form_reader_app as app_module
-        self.app_module = app_module
-        self.root = tkinter.Tk()
-        self.app = app_module.App(self.root)
-        self.app.folder.set(str(base / "2026"))
-        self.app.results_parent.set(str(base / "results"))
+        self.m = app_module
+        self.api = app_module.Api()
+        self.page = {"folder": str(base / "2026"), "start": "year", "look_in": "main", "zips": False,
+                     "names": ["worksheet"], "match": "partial", "out": str(base / "results")}
 
     def tearDown(self):
-        try:
-            self.root.destroy()
-        except Exception:
-            pass
+        self.api.stop()
+        self.api.wait(10)
         if self._old_local is None:
             os.environ.pop("LOCALAPPDATA", None)
         else:
             os.environ["LOCALAPPDATA"] = self._old_local
         self.tmp.cleanup()
 
-    def wait_until_finished(self):
-        import time
-        deadline = time.time() + 30
-        while time.time() < deadline:
-            self.root.update()
-            if self.app.worker and not self.app.worker.is_alive() and self.app.events.empty():
-                self.root.update()
-                if str(self.app.run_btn["state"]) == "normal":
-                    return
-            time.sleep(0.05)
-        self.fail("the run did not finish")
-
-    def test_add_names_ignores_repeats(self):
-        for name in ("worksheet", "  Worksheet ", "notice"):
-            self.app.new_name.set(name)
-            self.app.add_name()
-        self.assertEqual(self.app.current_settings().names, ["worksheet", "notice"])
-
     def test_a_run_reads_the_chosen_pdfs_and_remembers_the_settings(self):
-        self.app.new_name.set("worksheet")
-        self.app.add_name()
-        self.app.start_run()
-        self.wait_until_finished()
-        self.assertEqual(self.app.status.get(), "Finished.")
-        results = list((self.base / "results").glob("pdf-form-results-*"))
-        self.assertEqual(len(results), 1)
-        with open(results[0] / "files.csv", encoding="utf-8-sig") as fh:
+        self.assertEqual(self.api.start(self.page), {"ok": True})
+        st = self.api.wait(30)
+        self.assertEqual(st["state"], "done")
+        self.assertEqual(st["counts"]["pdfs"], 1)
+        self.assertEqual(st["counts"]["name_skipped"], 1)
+        with open(Path(st["results"]) / "files.csv", encoding="utf-8-sig") as fh:
             files = [r["File"] for r in csv.DictReader(fh)]
         self.assertEqual(files, ["March/Job 140205/Smith Worksheet.pdf"])
-        remembered = reader.load_settings(self.app_module.settings_path())
-        self.assertEqual(remembered.names, ["worksheet"])
-        self.assertEqual(remembered.folder, str(self.base / "2026"))
+        self.assertEqual(self.api.load()["names"], ["worksheet"])
+
+    def test_first_load_offers_documents_for_results(self):
+        self.assertTrue(self.api.load()["out"])
+
+    def test_what_the_page_sends_is_checked_not_trusted(self):
+        s = self.m._settings_from({"folder": ' "D:\\Jobs" ', "start": "decade", "look_in": "x",
+                                   "names": ["worksheet", " Worksheet ", "", "a  b"], "match": "??"})
+        self.assertEqual((s.folder, s.start, s.look_in, s.match), ("D:\\Jobs", "year", "main", "partial"))
+        self.assertEqual(s.names, ["worksheet", "a b"])
+
+    def test_refusals_are_explained(self):
+        cases = [
+            ({**self.page, "folder": ""}, "Choose the folder"),
+            ({**self.page, "folder": str(self.base / "nope")}, "was not found"),
+            ({**self.page, "out": str(self.base / "nope")}, "save results in was not found"),
+            ({**self.page, "out": str(self.base / "2026")}, "OUTSIDE"),
+        ]
+        (self.base / "OneDrive - Gallo").mkdir()
+        cases.append(({**self.page, "out": str(self.base / "OneDrive - Gallo")}, "cloud"))
+        for page, words in cases:
+            answer = self.api.start(page)
+            self.assertFalse(answer["ok"], page)
+            self.assertIn(words, answer["error"])
+        self.assertEqual(self.api.status()["state"], "idle")
 
     def test_stop(self):
-        self.app.stop_flag.set()  # pressed before the first file: nothing is read
-        settings = self.app.current_settings()
+        self.api._stop.set()  # as if Stop were pressed before the first file
+        settings = self.m._settings_from(self.page)
         out = self.base / "results" / "stopped"
-        self.app._work(settings, Path(settings.folder).resolve(), out)
-        kind, payload = self.app.events.get_nowait()
-        self.assertEqual(kind, "done")
-        self.assertTrue(payload[3])  # marked as stopped
-        self.assertEqual(payload[0].counts["pdfs"], 0)
+        self.api._work(settings, Path(settings.folder).resolve(), out)
+        st = self.api.status()
+        self.assertEqual(st["state"], "stopped")
+        self.assertEqual(st["counts"]["pdfs"], 0)
+
+    def test_the_built_app_self_check(self):
+        try:
+            import webview  # noqa: F401
+        except ImportError:
+            self.skipTest("pywebview not installed")
+        self.assertEqual(self.m.selftest(), 0)
 
 
 class NoInternet(unittest.TestCase):

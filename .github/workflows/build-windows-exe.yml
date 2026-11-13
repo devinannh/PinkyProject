@@ -11,6 +11,7 @@ on:
   push:
     paths:
       - "*.py"
+      - "ui/**"
       - "requirements*.txt"
       - "tests/**"
       - ".github/workflows/build-windows-exe.yml"
@@ -33,21 +34,29 @@ jobs:
       - name: Install
         run: python -m pip install -r requirements-dev.txt pyinstaller==6.11.1
 
-      - name: Tests (including the window)
+      - name: Tests
         run: python -m unittest discover -s tests -v
 
       - name: Build the .exe
         run: >
           pyinstaller --onefile --windowed --clean --noconfirm
           --name "PDF Form Reader"
+          --add-data "ui;ui"
+          --exclude-module tkinter
           pdf_form_reader_app.py
 
-      - name: Check the built .exe starts and reads a PDF
+      # The window itself cannot open on a build machine (no desktop), so the
+      # self-check proves the rest: the page is inside the .exe, the window
+      # library loads, and a run started the way the page starts one reads a PDF.
+      - name: Check the built .exe carries its page and reads a PDF
         shell: pwsh
         timeout-minutes: 3
         run: |
           $p = Start-Process -FilePath "dist\PDF Form Reader.exe" -ArgumentList "--selftest" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "The built app failed its self-check (exit code $($p.ExitCode))." }
+          if ($p.ExitCode -ne 0) {
+            Get-Content "$env:TEMP\pdf-form-reader-selftest.txt" -ErrorAction SilentlyContinue
+            throw "The built app failed its self-check (exit code $($p.ExitCode))."
+          }
           Write-Host "Self-check passed."
 
       - uses: actions/upload-artifact@v4

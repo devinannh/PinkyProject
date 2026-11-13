@@ -1,34 +1,48 @@
 """
-PDF Form Reader - the window version.
+PDF Form Reader - the desktop app.
 
-The same reader as pdf_form_reader.py, with a window instead of typed
-commands: pick the folder, choose where to look and which file names to find,
-press Read PDFs. Runs only on this computer; nothing is sent anywhere.
+The same reader as pdf_form_reader.py, with a window styled like GalloScript
+(egallo8/YesLaw): an HTML page (ui/) shown in a native window by pywebview,
+the way GalloScript's desktop app is built. The page calls the methods of
+`Api` below; it never touches a file itself and makes no network request.
+No local web server is started either: pywebview hands the page `Api`
+directly.
+
+Runs only on this computer; nothing is sent anywhere.
 
 Settings are remembered between uses in a small text file:
   Windows: %LOCALAPPDATA%\\PDF Form Reader\\settings.txt
   other:   ~/.pdf-form-reader/settings.txt
 It holds folder paths and file names only, never anything read from a PDF.
 
-Build the Windows .exe with PyInstaller (see .github/workflows/build-windows-exe.yml).
-`PDF Form Reader.exe --selftest` checks that a built copy starts and can read a PDF.
+`PDF Form Reader.exe --selftest` checks that a built copy carries its page
+and can read a PDF; the build runs it before offering the .exe for download.
 """
 
 from __future__ import annotations
 
 import os
-import queue
 import sys
 import tempfile
 import threading
-import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
 
 import pdf_form_reader as core
 
 APP_NAME = "PDF Form Reader"
-APP_VERSION = "1.0"
+
+WINDOW = {"width": 1180, "height": 780, "min_size": (980, 640)}
+
+# The title bar, as GalloScript paints it on Windows 11: its dark card
+# colour with white writing (galloscript_web/desktop.py, TITLE_BAR).
+TITLE_BAR = "#2B2729"
+TITLE_TEXT = "#FFFFFF"
+
+
+def ui_dir() -> Path:
+    """Where the page is: beside this file, or inside the built .exe."""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return base / "ui"
 
 
 def settings_path() -> Path:
@@ -43,376 +57,322 @@ def default_results_parent() -> str:
     return str(docs if docs.is_dir() else Path.home())
 
 
-def load_remembered() -> core.Settings:
-    try:
-        return core.load_settings(settings_path())
-    except core.SettingsError:
-        return core.Settings()  # first run, or the file was edited badly: start fresh
+def _settings_from(data: dict) -> core.Settings:
+    """Settings from what the page sends, checked rather than trusted."""
+    def pick(key, allowed, default):
+        value = str(data.get(key) or "")
+        return value if value in allowed else default
+
+    names, seen = [], set()
+    for raw in data.get("names") or []:
+        name = " ".join(str(raw).split())
+        if name and name.casefold() not in seen:
+            seen.add(name.casefold())
+            names.append(name)
+    return core.Settings(
+        folder=str(data.get("folder") or "").strip().strip('"'),
+        start=pick("start", {"year", "month", "job"}, "year"),
+        look_in=pick("look_in", {"main", "all"}, "main"),
+        zips=bool(data.get("zips")),
+        names=names,
+        match=pick("match", {"partial", "complete"}, "partial"),
+        out=str(data.get("out") or "").strip().strip('"'),
+    )
 
 
-class App:
-    PAD = 10
+def _as_dict(s: core.Settings) -> dict:
+    return {"folder": s.folder, "start": s.start, "look_in": s.look_in, "zips": s.zips,
+            "names": list(s.names), "match": s.match, "out": s.out}
 
-    def __init__(self, root: tk.Tk):
-        self.root = root
-        self.events: queue.Queue = queue.Queue()
-        self.worker: threading.Thread | None = None
-        self.stop_flag = threading.Event()
-        self.last_results: Path | None = None
 
-        root.title(APP_NAME)
-        root.minsize(760, 520)
-        self._style()
+class Api:
+    """What the page may ask for. Every public method is callable from it.
 
-        s = load_remembered()
-        self.folder = tk.StringVar(value=s.folder)
-        self.start = tk.StringVar(value=s.start)
-        self.look_in = tk.StringVar(value=s.look_in)
-        self.zips = tk.BooleanVar(value=s.zips)
-        self.match = tk.StringVar(value=s.match)
-        self.results_parent = tk.StringVar(value=s.out or default_results_parent())
-        self.new_name = tk.StringVar()
-        self.status = tk.StringVar(value="Ready.")
+    State is kept in underscore names: pywebview offers the page every
+    public attribute, and a window object among them would be walked into.
+    """
 
-        self._build(s.names)
-        root.protocol("WM_DELETE_WINDOW", self.on_close)
-        root.after(100, self._poll)
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._worker: threading.Thread | None = None
+        self._state = {"state": "idle", "files_read": 0, "now": ""}
+        self._window = None
 
-    # ---------------------------------------------------------------- layout
-    def _style(self):
-        style = ttk.Style(self.root)
-        if "vista" not in style.theme_names():
-            style.theme_use("clam")
-        style.configure("Title.TLabel", font=("Segoe UI", 15, "bold"))
-        style.configure("Hint.TLabel", foreground="#5f5a55")
-        style.configure("Section.TLabelframe.Label", font=("Segoe UI", 10, "bold"))
-        style.configure("Run.TButton", font=("Segoe UI", 10, "bold"), padding=(14, 6))
-
-    def _section(self, parent, row, title, column=0, columnspan=2, padx=(0, 0)):
-        frame = ttk.LabelFrame(parent, text=title, style="Section.TLabelframe", padding=self.PAD)
-        frame.grid(row=row, column=column, columnspan=columnspan, sticky="nsew", pady=(0, self.PAD), padx=padx)
-        frame.columnconfigure(0, weight=1)
-        return frame
-
-    def _build(self, names):
-        outer = ttk.Frame(self.root, padding=14)
-        outer.grid(row=0, column=0, sticky="nsew")
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-        outer.columnconfigure(0, weight=2)
-        outer.columnconfigure(1, weight=3)
-
-        ttk.Label(outer, text=APP_NAME, style="Title.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
-        ttk.Label(
-            outer,
-            text="Lists the answers typed or ticked in fillable PDF forms. "
-                 "Runs only on this computer; nothing is sent anywhere.",
-            style="Hint.TLabel", wraplength=780,
-        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 10))
-
-        # 1. Folder to read
-        f1 = self._section(outer, 2, "1.  Folder to read")
-        ttk.Entry(f1, textvariable=self.folder).grid(row=0, column=0, sticky="ew")
-        ttk.Button(f1, text="Browse…", command=self.pick_folder).grid(row=0, column=1, padx=(8, 0))
-        r = ttk.Frame(f1)
-        r.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
-        ttk.Label(r, text="This folder is:").pack(side="left", padx=(0, 8))
-        for value, text in (("year", "a year folder"), ("month", "a month folder"), ("job", "one job folder")):
-            ttk.Radiobutton(r, text=text, value=value, variable=self.start).pack(side="left", padx=(0, 12))
-
-        # 2. Where to look
-        f2 = self._section(outer, 3, "2.  Where to look in each job folder", column=0, columnspan=1, padx=(0, 8))
-        ttk.Radiobutton(f2, text="Main job folder only",
-                        value="main", variable=self.look_in).grid(row=0, column=0, sticky="w")
-        ttk.Label(f2, text="Subfolders are not opened.", style="Hint.TLabel").grid(row=1, column=0, sticky="w", padx=(22, 0))
-        ttk.Radiobutton(f2, text="Main job folder and all its subfolders",
-                        value="all", variable=self.look_in).grid(row=2, column=0, sticky="w", pady=(6, 0))
-        ttk.Separator(f2).grid(row=3, column=0, sticky="ew", pady=10)
-        ttk.Checkbutton(f2, text="Also read PDFs inside zip files",
-                        variable=self.zips).grid(row=4, column=0, sticky="w")
-
-        # 3. File names
-        f3 = self._section(outer, 3, "3.  File names to look for", column=1, columnspan=1)
-        lb_frame = ttk.Frame(f3)
-        lb_frame.grid(row=0, column=0, sticky="ew")
-        lb_frame.columnconfigure(0, weight=1)
-        self.names = tk.Listbox(lb_frame, height=4, activestyle="none", exportselection=False)
-        self.names.grid(row=0, column=0, sticky="ew")
-        sb = ttk.Scrollbar(lb_frame, orient="vertical", command=self.names.yview)
-        sb.grid(row=0, column=1, sticky="ns")
-        self.names.configure(yscrollcommand=sb.set)
-        for n in names:
-            self.names.insert("end", n)
-        side = ttk.Frame(f3)
-        side.grid(row=0, column=1, sticky="n", padx=(8, 0))
-        ttk.Button(side, text="Remove", command=self.remove_name).pack(fill="x")
-
-        add = ttk.Frame(f3)
-        add.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        add.columnconfigure(0, weight=1)
-        entry = ttk.Entry(add, textvariable=self.new_name)
-        entry.grid(row=0, column=0, sticky="ew")
-        entry.bind("<Return>", lambda _e: self.add_name())
-        ttk.Button(add, text="Add name", command=self.add_name).grid(row=0, column=1, padx=(8, 0))
-        ttk.Label(
-            f3,
-            text="Empty list = read every PDF. Capitals, extra spaces and “.pdf” never matter.",
-            style="Hint.TLabel", wraplength=420,
-        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 6))
-        ttk.Radiobutton(f3, text="Partial: the file name contains it",
-                        value="partial", variable=self.match).grid(row=3, column=0, columnspan=2, sticky="w")
-        ttk.Radiobutton(f3, text="Complete: the file name is exactly it",
-                        value="complete", variable=self.match).grid(row=4, column=0, columnspan=2, sticky="w")
-        ttk.Label(
-            f3,
-            text="“worksheet” finds “Smith Worksheet FINAL.pdf” with Partial, "
-                 "but only “Worksheet.pdf” with Complete.",
-            style="Hint.TLabel", wraplength=420,
-        ).grid(row=5, column=0, columnspan=2, sticky="w", padx=(22, 0))
-
-        # 4. Results
-        f4 = self._section(outer, 5, "4.  Save results in")
-        ttk.Entry(f4, textvariable=self.results_parent).grid(row=0, column=0, sticky="ew")
-        ttk.Button(f4, text="Browse…", command=self.pick_results).grid(row=0, column=1, padx=(8, 0))
-        ttk.Label(
-            f4,
-            text="A new dated folder is made here each time. Do not choose a OneDrive, iCloud, "
-                 "Dropbox, Google Drive or Box folder: those copy files to the cloud.",
-            style="Hint.TLabel", wraplength=760,
-        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
-
-        # Run
-        run = ttk.Frame(outer)
-        run.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(2, 6))
-        run.columnconfigure(3, weight=1)
-        self.run_btn = ttk.Button(run, text="Read PDFs", style="Run.TButton", command=self.start_run)
-        self.run_btn.grid(row=0, column=0)
-        self.stop_btn = ttk.Button(run, text="Stop", command=self.stop_run, state="disabled")
-        self.stop_btn.grid(row=0, column=1, padx=(8, 0))
-        self.open_btn = ttk.Button(run, text="Open results folder", command=self.open_results, state="disabled")
-        self.open_btn.grid(row=0, column=2, padx=(8, 0))
-        self.bar = ttk.Progressbar(run, mode="indeterminate")
-        self.bar.grid(row=0, column=3, sticky="ew", padx=(12, 0))
-
-        ttk.Label(outer, textvariable=self.status, wraplength=780).grid(row=7, column=0, columnspan=2, sticky="w")
-        self.summary = tk.Text(outer, height=6, wrap="word", relief="flat", borderwidth=1,
-                               background="#f6f4f1", padx=8, pady=6, state="disabled",
-                               font=("Segoe UI", 9))
-        self.summary.grid(row=8, column=0, columnspan=2, sticky="nsew", pady=(6, 6))
-        summary_sb = ttk.Scrollbar(outer, orient="vertical", command=self.summary.yview)
-        summary_sb.grid(row=8, column=2, sticky="ns", pady=(6, 6))
-        self.summary.configure(yscrollcommand=summary_sb.set)
-        outer.rowconfigure(8, weight=1)
-        ttk.Label(
-            outer,
-            text="The results contain real client data. Keep them on this computer and delete them when done.",
-            style="Hint.TLabel", wraplength=780,
-        ).grid(row=9, column=0, columnspan=2, sticky="w")
-
-        # Fit short screens: if the window would be taller than the screen,
-        # start it shorter; the results box gives up the space.
-        self.root.update_idletasks()
-        want_h = self.root.winfo_reqheight()
-        room_h = self.root.winfo_screenheight() - 90
-        if want_h > room_h:
-            self.root.geometry(f"{self.root.winfo_reqwidth()}x{room_h}+20+10")
-
-    # --------------------------------------------------------------- actions
-    def pick_folder(self):
-        chosen = filedialog.askdirectory(title="Choose the folder to read", initialdir=self.folder.get() or None)
-        if chosen:
-            self.folder.set(os.path.normpath(chosen))
-
-    def pick_results(self):
-        chosen = filedialog.askdirectory(title="Choose where to save results",
-                                         initialdir=self.results_parent.get() or None)
-        if chosen:
-            self.results_parent.set(os.path.normpath(chosen))
-
-    def add_name(self):
-        name = " ".join(self.new_name.get().split())
-        if not name:
-            return
-        if name.casefold() not in (n.casefold() for n in self.names.get(0, "end")):
-            self.names.insert("end", name)
-        self.new_name.set("")
-
-    def remove_name(self):
-        for index in reversed(self.names.curselection()):
-            self.names.delete(index)
-
-    def current_settings(self) -> core.Settings:
-        return core.Settings(
-            folder=self.folder.get().strip().strip('"'),
-            start=self.start.get(),
-            look_in=self.look_in.get(),
-            zips=bool(self.zips.get()),
-            names=list(self.names.get(0, "end")),
-            match=self.match.get(),
-            out=self.results_parent.get().strip().strip('"'),
-        )
-
-    def remember(self):
+    # ---- settings
+    def load(self) -> dict:
         try:
-            core.save_settings(self.current_settings(), settings_path())
+            s = core.load_settings(settings_path())
+        except core.SettingsError:
+            s = core.Settings()  # first run, or the file was edited badly: start fresh
+        if not s.out:
+            s.out = default_results_parent()
+        return _as_dict(s)
+
+    def save(self, data: dict) -> bool:
+        try:
+            core.save_settings(_settings_from(data), settings_path())
+            return True
         except OSError:
-            pass  # remembering settings is a convenience; never block a run on it
+            return False  # remembering is a convenience; never block on it
 
-    def _show_summary(self, text: str):
-        self.summary.configure(state="normal")
-        self.summary.delete("1.0", "end")
-        self.summary.insert("1.0", text)
-        self.summary.configure(state="disabled")
+    # ---- choosing folders
+    def pick_folder(self, start: str = "", title: str = "Choose a folder") -> str | None:
+        if sys.platform == "win32":
+            try:
+                return windows_folder_dialog(start, title, self._owner()) or None
+            except Exception:
+                pass
+        if self._window is not None:
+            import webview
+            picked = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory=start or "")
+            return picked[0] if picked else None
+        return None
 
-    def start_run(self):
-        settings = self.current_settings()
+    def _owner(self) -> int:
+        try:
+            return int(self._window.native.Handle.ToInt64())
+        except Exception:
+            return 0
+
+    # ---- reading
+    def start(self, data: dict) -> dict:
+        if self._worker and self._worker.is_alive():
+            return {"ok": False, "error": "Already reading."}
+        settings = _settings_from(data)
         if not settings.folder:
-            messagebox.showwarning(APP_NAME, "Choose the folder to read first (step 1).")
-            return
+            return {"ok": False, "error": "Choose the folder to read first (step 1)."}
         root = Path(settings.folder).expanduser()
         if not root.is_dir():
-            messagebox.showwarning(APP_NAME, f"That folder was not found:\n{root}")
-            return
+            return {"ok": False, "error": f"That folder was not found: {root}"}
         parent = Path(settings.out or default_results_parent()).expanduser()
         if not parent.is_dir():
-            messagebox.showwarning(APP_NAME, f"The folder to save results in was not found:\n{parent}")
-            return
+            return {"ok": False, "error": f"The folder to save results in was not found: {parent}"}
         root = root.resolve()
         out_dir = parent.resolve() / core.dated_folder_name()
         problem = core.results_folder_problem(root, out_dir)
         if problem:
-            messagebox.showwarning(APP_NAME, problem)
-            return
-        if self.new_name.get().strip():
-            if messagebox.askyesno(APP_NAME, f"Add “{self.new_name.get().strip()}” to the file names first?"):
-                self.add_name()
-                settings = self.current_settings()
+            return {"ok": False, "error": problem}
 
-        self.remember()
-        self.stop_flag.clear()
-        self.last_results = None
-        self.run_btn.configure(state="disabled")
-        self.stop_btn.configure(state="normal")
-        self.open_btn.configure(state="disabled")
-        self.bar.start(12)
-        self.status.set("Reading…")
-        self._show_summary(settings.describe())
-        self.worker = threading.Thread(target=self._work, args=(settings, root, out_dir), daemon=True)
-        self.worker.start()
+        self.save(_as_dict(settings))
+        self._stop.clear()
+        with self._lock:
+            self._state = {"state": "running", "files_read": 0, "now": ""}
+        self._worker = threading.Thread(target=self._work, args=(settings, root, out_dir), daemon=True)
+        self._worker.start()
+        return {"ok": True}
 
     def _work(self, settings: core.Settings, root: Path, out_dir: Path):
-        """Runs in the background so the window stays responsive."""
         report = None
+
+        def progress(n, shown):
+            with self._lock:
+                self._state["files_read"] = n
+                self._state["now"] = shown
+
         try:
             report = core.Report(out_dir, settings.start, root.name)
             (out_dir / "settings-used.txt").write_text(settings.describe(), encoding="utf-8")
-            core.scan(
-                root, report, settings,
-                on_progress=lambda n, shown: self.events.put(("progress", f"{n} files read. Now: {shown}")),
-                should_stop=self.stop_flag.is_set,
-            )
+            stopped = False
+            try:
+                core.scan(root, report, settings, on_progress=progress, should_stop=self._stop.is_set)
+            except core.Cancelled:
+                stopped = True
             report.close()
-            self.events.put(("done", (report, settings, out_dir, False)))
-        except core.Cancelled:
-            report.close()
-            self.events.put(("done", (report, settings, out_dir, True)))
+            with self._lock:
+                self._state = {
+                    "state": "stopped" if stopped else "done",
+                    "counts": dict(report.counts),
+                    "lines": core.summary_lines(report, settings),
+                    "main_only": settings.look_in == "main",
+                    "results": str(out_dir),
+                    "can_open": hasattr(os, "startfile"),
+                    "files_read": self._state.get("files_read", 0),
+                }
         except Exception as exc:
             if report is not None:
                 report.close()
-            self.events.put(("error", f"{type(exc).__name__}: {exc}"))
+            with self._lock:
+                self._state = {"state": "error", "error": f"Something went wrong: {type(exc).__name__}: {exc}"}
 
-    def _poll(self):
-        try:
-            while True:
-                kind, payload = self.events.get_nowait()
-                if kind == "progress":
-                    self.status.set(payload)
-                elif kind == "done":
-                    self._finished(*payload)
-                elif kind == "error":
-                    self._idle()
-                    self.status.set("Something went wrong.")
-                    messagebox.showerror(APP_NAME, f"Something went wrong:\n{payload}")
-        except queue.Empty:
-            pass
-        self.root.after(100, self._poll)
+    def status(self) -> dict:
+        with self._lock:
+            return dict(self._state)
 
-    def _idle(self):
-        self.bar.stop()
-        self.bar["value"] = 0
-        self.run_btn.configure(state="normal")
-        self.stop_btn.configure(state="disabled")
+    def stop(self) -> bool:
+        self._stop.set()
+        return True
 
-    def _finished(self, report, settings, out_dir, stopped):
-        self._idle()
-        self.last_results = out_dir
-        if hasattr(os, "startfile"):
-            self.open_btn.configure(state="normal")
-        head = "Stopped. The results below cover only what was read before Stop." if stopped else "Finished."
-        self.status.set(head)
-        self._show_summary(
-            "\n".join(core.summary_lines(report, settings))
-            + f"\n\nResults saved in:\n{out_dir}\n  fields.csv  - one row per form field\n"
-              "  files.csv   - one row per PDF, and any problems\n"
-              "  settings-used.txt - the choices that made these results"
-        )
+    def open_results(self) -> bool:
+        results = self.status().get("results")
+        if results and hasattr(os, "startfile"):
+            os.startfile(results)  # Windows: opens the folder in File Explorer
+            return True
+        return False
 
-    def stop_run(self):
-        self.stop_flag.set()
-        self.status.set("Stopping after the current file…")
+    def wait(self, timeout: float = 60) -> dict:
+        """For tests and the self-check: wait for a run to end."""
+        if self._worker:
+            self._worker.join(timeout)
+        return self.status()
 
-    def open_results(self):
-        if self.last_results and hasattr(os, "startfile"):
-            os.startfile(self.last_results)  # Windows: opens the folder in File Explorer
 
-    def on_close(self):
-        if self.worker and self.worker.is_alive():
-            if not messagebox.askyesno(APP_NAME, "Still reading. Stop and close?"):
-                return
-            self.stop_flag.set()
-            self.worker.join(timeout=10)
-        self.remember()
-        self.root.destroy()
+# --------------------------------------------------------------------------
+# Windows-only window touches, after GalloScript's galloscript_web/desktop.py
+# --------------------------------------------------------------------------
+
+def windows_folder_dialog(start: str, title: str, owner: int = 0) -> str:
+    """Windows' own folder chooser, asked for directly. -> the path, or ''."""
+    import ctypes
+    from ctypes import wintypes
+
+    class BROWSEINFOW(ctypes.Structure):
+        _fields_ = [("hwndOwner", wintypes.HWND),
+                    ("pidlRoot", ctypes.c_void_p),
+                    ("pszDisplayName", wintypes.LPWSTR),
+                    ("lpszTitle", wintypes.LPCWSTR),
+                    ("ulFlags", wintypes.UINT),
+                    ("lpfn", ctypes.c_void_p),
+                    ("lParam", wintypes.LPARAM),
+                    ("iImage", ctypes.c_int)]
+
+    BIF_RETURNONLYFSDIRS, BIF_NEWDIALOGSTYLE = 0x00000001, 0x00000040
+    BFFM_INITIALIZED, BFFM_SETSELECTIONW = 1, 0x467
+
+    ctypes.windll.ole32.CoInitialize(None)
+    callback = ctypes.c_void_p()
+    if start and os.path.isdir(start):
+        proto = ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HWND, wintypes.UINT,
+                                   wintypes.LPARAM, wintypes.LPARAM)
+
+        def on_message(hwnd, message, param, data):
+            if message == BFFM_INITIALIZED:
+                ctypes.windll.user32.SendMessageW(hwnd, BFFM_SETSELECTIONW, 1, start)
+            return 0
+
+        on_message = proto(on_message)
+        windows_folder_dialog._keep = on_message  # not collected mid-call
+        callback = ctypes.cast(on_message, ctypes.c_void_p)
+
+    info = BROWSEINFOW()
+    info.hwndOwner = owner
+    info.pszDisplayName = ctypes.cast(ctypes.create_unicode_buffer(260), wintypes.LPWSTR)
+    info.lpszTitle = title
+    info.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE
+    info.lpfn = callback
+    item = ctypes.windll.shell32.SHBrowseForFolderW(ctypes.byref(info))
+    if not item:
+        return ""
+    path = ctypes.create_unicode_buffer(32768)
+    ok = ctypes.windll.shell32.SHGetPathFromIDListW(ctypes.c_void_p(item), path)
+    ctypes.windll.ole32.CoTaskMemFree(ctypes.c_void_p(item))
+    return path.value if ok else ""
+
+
+def _colorref(hex_colour: str) -> int:
+    r, g, b = (int(hex_colour.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    return (b << 16) | (g << 8) | r
+
+
+def paint_title_bar(title: str) -> bool:
+    """Colour this app's title bar like GalloScript's (Windows 11; dark on 10)."""
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    from ctypes import wintypes
+    user32, dwm = ctypes.windll.user32, ctypes.windll.dwmapi
+    found = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def each(hwnd, _):
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value == os.getpid() and user32.IsWindowVisible(hwnd):
+            buf = ctypes.create_unicode_buffer(256)
+            user32.GetWindowTextW(hwnd, buf, 256)
+            if buf.value == title:
+                found.append(hwnd)
+        return True
+
+    user32.EnumWindows(each, 0)
+
+    def put(hwnd, attribute, value):
+        v = ctypes.c_int(value)
+        return dwm.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(v), ctypes.sizeof(v)) == 0
+
+    ok = False
+    for hwnd in found:
+        put(hwnd, 20, 1)                                   # dark mode
+        ok = put(hwnd, 35, _colorref(TITLE_BAR)) or ok     # caption
+        put(hwnd, 36, _colorref(TITLE_TEXT))               # its text
+        put(hwnd, 34, _colorref(TITLE_BAR))                # the border
+    return ok
+
+
+# --------------------------------------------------------------------------
+# Starting
+# --------------------------------------------------------------------------
+
+def open_the_streams():
+    """A windowed build has no console streams; give it harmless ones."""
+    for name, mode in (("stdin", "r"), ("stdout", "w"), ("stderr", "w")):
+        if getattr(sys, name, None) is None:
+            setattr(sys, name, open(os.devnull, mode))
 
 
 def selftest() -> int:
-    """For the build check: the window opens, and a PDF can be read and reported."""
+    """For the build check: the page is carried, the window library loads,
+    and a run started the way the page starts one reads a PDF."""
     from pypdf import PdfWriter
+
+    problems = []
+    for name in ("index.html", "style.css", "app.js", "fonts/PlayfairDisplay-Bold.woff2"):
+        if not (ui_dir() / name).is_file():
+            problems.append(f"missing ui/{name}")
+    try:
+        import webview  # noqa: F401
+    except Exception as exc:
+        problems.append(f"window library will not load: {exc!r}")
 
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp)
+        os.environ["LOCALAPPDATA"] = str(base / "appdata")
         job = base / "2026" / "March" / "Job 1"
         job.mkdir(parents=True)
+        (base / "results").mkdir()
         writer = PdfWriter()
         writer.add_blank_page(width=612, height=792)
-        with open(job / "worksheet.pdf", "wb") as fh:
+        with open(job / "Worksheet.pdf", "wb") as fh:
             writer.write(fh)
-        settings = core.Settings(folder=str(base / "2026"), names=["worksheet"])
-        report = core.Report(base / "results", "year", "2026")
-        core.scan(base / "2026", report, settings, quiet=True)
-        report.close()
-        ok = report.counts["pdfs"] == 1 and (base / "results" / "files.csv").read_text(encoding="utf-8-sig").count("\n") == 2
+        api = Api()
+        answer = api.start({"folder": str(base / "2026"), "names": ["worksheet"],
+                            "out": str(base / "results")})
+        if not answer.get("ok"):
+            problems.append(f"run refused: {answer}")
+        else:
+            st = api.wait(60)
+            if st.get("state") != "done" or st["counts"]["pdfs"] != 1:
+                problems.append(f"run did not read the PDF: {st}")
 
-        root = tk.Tk()
-        App(root)
-        root.update()
-        root.after(300, root.destroy)
-        root.mainloop()
-    return 0 if ok else 1
+    if problems:
+        with open(Path(tempfile.gettempdir()) / "pdf-form-reader-selftest.txt", "w") as fh:
+            fh.write("\n".join(problems))
+        print("\n".join(problems))
+    return 1 if problems else 0
 
 
 def main():
+    open_the_streams()
     if "--selftest" in sys.argv:
         sys.exit(selftest())
-    if sys.platform == "win32":
-        try:  # sharp text on high-resolution screens
-            import ctypes
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
-        except Exception:
-            pass
-    root = tk.Tk()
-    App(root)
-    root.mainloop()
+    import webview
+
+    api = Api()
+    window = webview.create_window(APP_NAME, str(ui_dir() / "index.html"), js_api=api,
+                                   background_color="#D9D9DB", **WINDOW)
+    api._window = window
+    window.events.shown += lambda: paint_title_bar(APP_NAME)
+    webview.start()
 
 
 if __name__ == "__main__":

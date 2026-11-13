@@ -32,23 +32,33 @@ we can look at signing it.
 
 ### Using it
 
+The app looks and behaves like GalloScript: steps down the left, a card for
+each step, and the results on the right. It follows Windows' light or dark
+setting.
+
 1. **Folder to read**: click **Browse…** and pick the year folder (or one
    month or one job to try a small batch first), and say which it is.
-2. **Where to look**: *Main job folder only* reads files sitting directly in
-   each job folder and does not open subfolders. *All its subfolders* reads
-   everything inside the job folder. Tick *Also read PDFs inside zip files*
-   to include zips.
-3. **File names to look for**: type a name, press **Add name** (or Enter).
-   Choose **Partial** (the file name contains it) or **Complete** (the file
-   name is exactly it). An empty list reads every PDF.
+2. **Where to look in each job folder**: *Main job folder only* reads files
+   sitting directly in each job folder and does not open subfolders. *Job
+   folder and all subfolders* reads everything inside it. Tick *Also read
+   PDFs inside zip files* to include zips.
+3. **File names to look for**: type a name and press Enter (or **Add**). Each
+   name shows as a tag; click its **×** to remove it. Choose **Partial** (the
+   file name contains it) or **Complete** (the file name is exactly it); the
+   grey box under it shows an example of what your choice finds.
 4. **Save results in**: pick a folder on this computer. A new dated folder is
    made inside it each time, so earlier results are never overwritten.
-5. Press **Read PDFs**. **Stop** halts after the current file. When it
-   finishes, **Open results folder** shows the spreadsheets.
+5. Press **Read PDFs** at the bottom. **Stop** halts after the current file.
+   The Results panel shows the counts as it finishes; **Open results folder**
+   shows the spreadsheets.
 
 The app remembers your choices for next time. It keeps them in
 `%LOCALAPPDATA%\PDF Form Reader\settings.txt`, which holds folder paths and
 file names only, never anything read from a PDF.
+
+The window is drawn by Microsoft Edge WebView2, which comes with Windows 10
+and 11. If the app opens to a blank window on an older or locked-down PC,
+IT can install the WebView2 Runtime from Microsoft.
 
 With the name `worksheet`:
 
@@ -183,7 +193,8 @@ Tests use made-up forms built in memory; no real file is ever stored here.
     python -m pip install -r requirements-dev.txt
     python -m unittest discover -s tests -v
 
-The window tests run only where there is a screen; elsewhere they are skipped.
-The .exe is built by `.github/workflows/build-windows-exe.yml` on a GitHub
+The app is `pdf_form_reader_app.py` (the `Api` the page calls, and the window)
+plus the page in `ui/`, styled after GalloScript (egallo8/YesLaw). The tests
+drive `Api` the way the page does. The .exe is built by `.github/workflows/build-windows-exe.yml` on a GitHub
 Windows machine, which runs every test, builds with PyInstaller, and starts
 the finished .exe with `--selftest` before offering it for download.
