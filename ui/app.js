@@ -176,6 +176,8 @@ function drawDone(st) {
         tile(c.witnesses, "witnesses listed"), tile(c.problems, "needing a look (files.csv)", c.problems))
     : el("div", { class: "tiles" }, tile(c.pdfs, "PDFs read"), tile(c.with_fields, "with form fields"),
         tile(c.fields, "form fields listed"), tile(c.problems, "needing a look (files.csv)", c.problems)));
+  if (pink && c.set_aside) parts.push(el("ul", { class: "lines" }, el("li", {},
+    "Blank Pink Sheets not used: a filled-in one in the same job folder was used (see files.csv)", el("b", {}, c.set_aside))));
   if (st.types && st.types.length) parts.push(el("ul", { class: "lines" }, el("li", {},
     `Other files found (${st.types.join(", ")}): listed, not read`, el("b", {}, c.other_found))));
   if (st.main_only) parts.push(el("div", { class: "muted" }, "Subfolders inside job folders were not opened (main job folder only)."));

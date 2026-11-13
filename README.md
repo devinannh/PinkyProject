@@ -59,7 +59,11 @@ setting.
    and Billing are left out, and fields.csv is not written. Pinky reads the
    sheet's revision from its "Revised …" date, and anything odd (no Job
    Number, page 2 Job Number different, an unknown revision, no witness) is
-   flagged in the "Needs a look" column and in files.csv. Add `pink sheet` as
+   flagged in the "Needs a look" column and in files.csv. If a job folder
+   holds more than one Pink Sheet, Pinky uses the filled-in one only when the
+   others are blank (those are listed in files.csv as not used); when more
+   than one is filled in, it keeps them all and flags them to choose by hand.
+   The same Job Number in two job folders is flagged on both. Add `pink sheet` as
    a file name so only the Pink Sheets are opened. See
    `docs/pink-sheet-field-map.md`.
 4. **Save results in**: pick a folder on this computer. A new dated folder is

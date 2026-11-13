@@ -184,3 +184,22 @@ Where these go in the portal is still to be decided, field by field (the
 - A **Year** column comes before Month, in every table.
 - DevinAnn rearranges the columns herself as needed, so their order is not
   a requirement.
+
+### More than one Pink Sheet in a job folder (DevinAnn, 2026-11-13)
+
+*"by 'most filled out', I'm assuming a situation where one version has every
+value we need filled out, and another that is blank ... If there is a
+situation where multiple are truly filled out, I don't want it to guess."*
+
+- **One filled in, the rest blank:** the filled-in one is used and flagged in
+  "Needs a look"; the blank ones are listed in files.csv as "Pink Sheet read -
+  not used", naming the one used.
+- **More than one filled in** (even if one has more answers): all of them are
+  kept and flagged "choose by hand". Pinky never picks between them. Any blank
+  ones beside them are still listed as not used.
+- **All blank:** all kept and flagged.
+- **Blank** means none of the Pink Sheet values above holds an answer; an
+  unticked box and the form's own "N/A" default do not count. Checked against
+  the four blank templates: all count as blank.
+- **The same Job Number in two different job folders:** flagged on both rows,
+  nothing dropped.

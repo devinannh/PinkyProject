@@ -110,6 +110,7 @@ RESULT_PASSWORD = "Password-protected - not read"
 RESULT_UNREADABLE = "Could not be read"
 RESULT_SKIPPED = "Skipped"
 RESULT_FOUND = "Found - not read (Pinky reads PDF forms only)"
+RESULT_NOT_USED = "Pink Sheet read - not used"
 
 
 @dataclass
@@ -430,17 +431,23 @@ class Report:
         self._file_rows: list[list] = [list(FILE_COLUMNS)]
         self._main_csv.writerow(header)
         self._files_csv.writerow(FILE_COLUMNS)
+        # Pink Sheet mode settles duplicates once every sheet has been read
+        # (see _settle_pink), so its rows are written when the run ends.
+        self._stream = form != "pink"
+        self._pink: list[dict] = []
         self.counts = {
             "pdfs": 0, "with_fields": 0, "fields": 0, "problems": 0,
-            "other_found": 0, "sheets": 0, "witnesses": 0,
+            "other_found": 0, "sheets": 0, "witnesses": 0, "set_aside": 0,
         }
 
     def _main_row(self, values: list):
-        self._main_csv.writerow([_safe_cell(v) for v in values])
+        if self._stream:
+            self._main_csv.writerow([_safe_cell(v) for v in values])
         self._main_rows.append(list(values))
 
     def _file_row(self, values: list):
-        self._files_csv.writerow([_safe_cell(v) for v in values])
+        if self._stream:
+            self._files_csv.writerow([_safe_cell(v) for v in values])
         self._file_rows.append(list(values))
 
     def where(self, parts: list[str]) -> tuple[str, str, str]:
@@ -483,15 +490,12 @@ class Report:
                             matched, result.result, len(result.fields), 0, note])
             return
         sheet_row = pink_sheet.row(by_name, result.page_one_text)
-        self.counts["sheets"] += 1
-        self.counts["witnesses"] += sheet_row.pop("_witnesses")
-        needs = sheet_row["Needs a look"]
-        if needs:
-            self.counts["problems"] += 1
+        witnesses = sheet_row.pop("_witnesses")
         self._file_row([year, month, job, display_name(shown_path), file_type(shown_path).upper(), matched, "Pink Sheet read",
-                        len(result.fields), sum(1 for f in result.fields if f.filled), needs])
+                        len(result.fields), sum(1 for f in result.fields if f.filled), sheet_row["Needs a look"]])
         out = {"Year": year, "Month": month, "Job folder": job, "File": display_name(shown_path), **sheet_row}
-        self._main_row([out.get(c, "") for c in pink_sheet.COLUMNS])
+        self._pink.append({"key": (year, month, job), "row": out, "witnesses": witnesses,
+                           "file_idx": len(self._file_rows) - 1, "name": display_name(shown_path)})
 
     def skip(self, parts: list[str], shown_path: str, reason: str):
         year, month, job = self.where(parts)
@@ -504,11 +508,88 @@ class Report:
         self.counts["other_found"] += 1
         self._file_row([year, month, job, display_name(shown_path), file_type(shown_path).upper(), matched, RESULT_FOUND, 0, 0, ""])
 
+    def _note(self, rec: dict, text: str):
+        """Add a note to a Pink Sheet's "Needs a look" and to its files.csv row."""
+        row = rec["row"]
+        row["Needs a look"] = "; ".join(t for t in (row["Needs a look"], text) if t)
+        self._file_rows[rec["file_idx"]][_NOTE_COL] = row["Needs a look"]
+
+    def _settle_pink(self):
+        """Several Pink Sheets in one job folder. Pinky picks ONLY when exactly
+        one is filled in and the rest are blank; the blank ones are listed in
+        files.csv as not used. When more than one holds answers, it keeps them
+        all and flags them for a person: it never guesses between filled-in
+        sheets (DevinAnn, 2026-11-13: "by 'most filled out', I'm assuming a
+        situation where one version has every value we need filled out, and
+        another that is blank ... If there is a situation where multiple are
+        truly filled out, I don't want it to guess.").
+        The same Job Number in two DIFFERENT job folders is flagged on both
+        and nothing is dropped: that is more likely a wrong number than a
+        second copy."""
+        groups: dict[tuple, list[dict]] = {}
+        for rec in self._pink:
+            groups.setdefault(rec["key"], []).append(rec)
+        used = []
+        for recs in groups.values():
+            if len(recs) == 1:
+                used.append(recs[0])
+                continue
+            count = len(recs)
+            filled = [rec for rec in recs if pink_sheet.filled_count(rec["row"]) > 0]
+            blank = [rec for rec in recs if pink_sheet.filled_count(rec["row"]) == 0]
+            if not filled:
+                for rec in recs:
+                    self._note(rec, f"{count} Pink Sheets in this job folder, all blank")
+                used.extend(recs)
+                continue
+            kept_names = ", ".join(rec["name"] for rec in filled)
+            if len(filled) == 1:
+                self._note(filled[0], f"{count} Pink Sheets in this job folder: used this one, the only one "
+                                      f"filled in (blank, not used: {', '.join(rec['name'] for rec in blank)})")
+            else:
+                for rec in filled:
+                    self._note(rec, f"{len(filled)} filled-in Pink Sheets in this job folder: all kept, "
+                                    f"choose by hand ({kept_names})")
+            for rec in blank:
+                self._file_rows[rec["file_idx"]][_RESULT_COL] = RESULT_NOT_USED
+                self._note(rec, f"Blank; the filled-in Pink Sheet in this job folder was used: {kept_names}")
+                self.counts["set_aside"] += 1
+            used.extend(filled)
+
+        by_job: dict[str, list[dict]] = {}
+        for rec in used:
+            number = "".join(str(rec["row"]["Job Number"]).split())
+            if number:
+                by_job.setdefault(number, []).append(rec)
+        for recs in by_job.values():
+            if len({rec["key"] for rec in recs}) > 1:
+                for rec in recs:
+                    elsewhere = sorted({f"{o['key'][1]}/{o['key'][2]}" for o in recs if o["key"] != rec["key"]})
+                    self._note(rec, "Job Number also on a Pink Sheet in: " + "; ".join(elsewhere))
+
+        used.sort(key=lambda rec: rec["file_idx"])  # the order they were read
+        self.counts["sheets"] = len(used)
+        self.counts["witnesses"] = sum(rec["witnesses"] for rec in used)
+        self.counts["problems"] += sum(1 for rec in used if rec["row"]["Needs a look"])
+        for rec in used:
+            self._main_rows.append([rec["row"].get(c, "") for c in pink_sheet.COLUMNS])
+
     def close(self):
+        if self.form == "pink":
+            self._settle_pink()
+        if not self._stream:
+            for values in self._main_rows[1:]:
+                self._main_csv.writerow([_safe_cell(v) for v in values])
+            for values in self._file_rows[1:]:
+                self._files_csv.writerow([_safe_cell(v) for v in values])
         self._main_fh.close()
         self._files_fh.close()
         write_workbook(self.out_dir / WORKBOOK_NAME,
                        [(self._main_sheet, self._main_rows), ("Files", self._file_rows)])
+
+
+_RESULT_COL = FILE_COLUMNS.index("Result")
+_NOTE_COL = FILE_COLUMNS.index("Note")
 
 
 def display_name(shown_path: str) -> str:
@@ -942,6 +1023,9 @@ def summary_lines(report: Report, settings: Settings) -> list[str]:
             f"   witnesses listed: {c['witnesses']}",
             f"   needing a look: {c['problems']}  (see files.csv)",
         ]
+        if c["set_aside"]:
+            lines.append(f"Blank Pink Sheets not used (a filled-in one in the same job folder was used): "
+                         f"{c['set_aside']}  (see files.csv)")
         if settings.types:
             lines.append(f"Other files found ({', '.join(t.upper() for t in settings.types)}), "
                          f"listed in files.csv, not read: {c['other_found']}")

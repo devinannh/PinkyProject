@@ -437,8 +437,17 @@ class OtherFileTypes(unittest.TestCase):
             reader.load_settings(path)
 
 
+def blank_pink_sheet_pdf() -> bytes:
+    """A made-up Pink Sheet with nothing filled in, as the form starts."""
+    data = pink_sheet_pdf(witnesses=(), job="", page_two_job="", blank=True)
+    dropdowns = {f"R&S.{i}" for i in range(6)} | {
+        "Dropdown17.0", "Dropdown7", "Dropdown8", "Dropdown1.1", "Dropdown1.2", "Dropdown9",
+        "Dropdown4", "Dropdown20.1", "Dropdown5", "Dropdown6"}
+    return clear_answers(data, dropdowns)
+
+
 def pink_sheet_pdf(revised="October 13, 2025", witnesses=(("Pat Example", "Waived", "Sam Counsel"),),
-                   job="999001", page_two_job=None, dd9="YES", extra_rs_row=False) -> bytes:
+                   job="999001", page_two_job=None, dd9="YES", extra_rs_row=False, blank=False) -> bytes:
     """A MADE-UP Pink Sheet: the real form's field names, invented values.
     Also fills a checklist tick and Billing fields with sentinel values that
     must never appear in Pinky's output."""
@@ -458,14 +467,14 @@ def pink_sheet_pdf(revised="October 13, 2025", witnesses=(("Pat Example", "Waive
         return y[0]
 
     def text(name, value=""):
-        form.textfield(name=name, value=value, x=60, y=nxt(), width=200, height=16)
+        form.textfield(name=name, value="" if blank else value, x=60, y=nxt(), width=200, height=16)
 
     def drop(name, options, value):
         form.choice(name=name, options=options, value=value, x=60, y=nxt(), width=200, height=16,
                     fieldFlags="combo")
 
     def tick(name, on):
-        form.checkbox(name=name, checked=on, x=60, y=nxt(), size=12)
+        form.checkbox(name=name, checked=on and not blank, x=60, y=nxt(), size=12)
 
     c.drawString(300, 30, f"Revised {revised}")
     text("Job Number", job)
@@ -650,6 +659,75 @@ class PinkSheetMode(unittest.TestCase):
         rows, files = self.run_pink()
         self.assertEqual(rows, [])
         self.assertIn("Not a Pink Sheet", files["November/Job 1/Other form.pdf"]["Note"])
+
+    def test_a_filled_in_sheet_beside_a_blank_one_is_used(self):
+        self.put("Job 1", blank_pink_sheet_pdf(), name="Pink Sheet.pdf")
+        self.put("Job 1", pink_sheet_pdf(), name="Pink Sheet UPDATED.pdf")
+        rows, files = self.run_pink()
+        self.assertEqual([r["File"] for r in rows], ["Pink Sheet UPDATED.pdf"])
+        self.assertIn("2 Pink Sheets in this job folder: used this one, the only one filled in "
+                      "(blank, not used: Pink Sheet.pdf)", rows[0]["Needs a look"])
+        set_aside = files["November/Job 1/Pink Sheet.pdf"]
+        self.assertEqual(set_aside["Result"], reader.RESULT_NOT_USED)
+        self.assertIn("Blank; the filled-in Pink Sheet in this job folder was used: Pink Sheet UPDATED.pdf",
+                      set_aside["Note"])
+        self.assertEqual([r["File"] for r in self._workbook_rows()], ["Pink Sheet UPDATED.pdf"])
+
+    def test_two_filled_in_sheets_are_never_guessed_between(self):
+        # one has more answers than the other: still no guess
+        fuller = pink_sheet_pdf(witnesses=(("Pat Example", "Waived", "Sam Counsel"), ("Lee Sample", "Waived", "")))
+        thinner = pink_sheet_pdf(witnesses=(("Pat Example", "Waived", ""),))
+        self.put("Job 1", thinner, name="Pink Sheet.pdf")
+        self.put("Job 1", fuller, name="Pink Sheet UPDATED.pdf")
+        self.put("Job 1", blank_pink_sheet_pdf(), name="Pink Sheet blank.pdf")
+        rows, files = self.run_pink()
+        self.assertEqual(sorted(r["File"] for r in rows), ["Pink Sheet UPDATED.pdf", "Pink Sheet.pdf"])
+        for r in rows:
+            self.assertIn("2 filled-in Pink Sheets in this job folder: all kept, choose by hand", r["Needs a look"])
+        self.assertEqual(files["November/Job 1/Pink Sheet blank.pdf"]["Result"], reader.RESULT_NOT_USED)
+
+    def test_all_blank_sheets_are_kept_and_flagged(self):
+        self.put("Job 1", blank_pink_sheet_pdf(), name="Pink Sheet A.pdf")
+        self.put("Job 1", blank_pink_sheet_pdf(), name="Pink Sheet B.pdf")
+        rows, _ = self.run_pink()
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all("2 Pink Sheets in this job folder, all blank" in r["Needs a look"] for r in rows))
+
+    def test_a_blank_sheet_counts_as_blank(self):
+        rows_ = []
+        self.put("Job 1", blank_pink_sheet_pdf())
+        rows_, _ = self.run_pink()
+        row = {k: v for k, v in rows_[0].items()}
+        self.assertEqual(reader.pink_sheet.filled_count(row), 0, {k: v for k, v in row.items() if v not in ("", "No")})
+
+    def test_same_job_number_in_two_job_folders_is_flagged_not_dropped(self):
+        self.put("Job 1", pink_sheet_pdf(job="999001"))
+        self.put("Job 2", pink_sheet_pdf(job="999001"))
+        self.put("Job 3", pink_sheet_pdf(job="999003"))
+        rows, _ = self.run_pink()
+        self.assertEqual(len(rows), 3)
+        notes = {r["Job folder"]: r["Needs a look"] for r in rows}
+        self.assertIn("Job Number also on a Pink Sheet in: November/Job 2", notes["Job 1"])
+        self.assertIn("Job Number also on a Pink Sheet in: November/Job 1", notes["Job 2"])
+        self.assertEqual(notes["Job 3"], "")
+
+    def test_a_non_pink_pdf_beside_a_pink_sheet_is_not_a_duplicate(self):
+        self.put("Job 1", pink_sheet_pdf())
+        self.put("Job 1", fillable_form(True), name="Pink Sheet notes.pdf")
+        rows, _ = self.run_pink()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["Needs a look"], "")
+
+    def test_how_filled_in_is_counted(self):
+        count = reader.pink_sheet.filled_count
+        self.assertEqual(count({"Witness A": "Pat", "USB": "No", "Copies: Electronic Only - media": "N/A",
+                                "Year": 2026, "File": "x.pdf", "Needs a look": "something"}), 1)
+
+    def _workbook_rows(self):
+        from openpyxl import load_workbook
+        ws = load_workbook(self.out / "pinky-results.xlsx")["Pink Sheets"]
+        head = [c.value for c in ws[1]]
+        return [dict(zip(head, r)) for r in ws.iter_rows(min_row=2, values_only=True)]
 
     def test_settings_file_and_app_carry_the_choice(self):
         path = self.base / "s.txt"

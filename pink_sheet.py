@@ -199,3 +199,17 @@ def row(fields: dict, page_one_text: str, page_two_job_number: str | None = None
     row["Needs a look"] = "; ".join(problems)
     row["_witnesses"] = listed      # for the count; not a column
     return row
+
+
+_NOT_COUNTED = {"Year", "Month", "Job folder", "File", "Form version", "Needs a look"}
+
+
+def filled_count(row: dict) -> int:
+    """How filled in a sheet is: the values that hold an answer. A box left
+    unticked ("No") and a dropdown left on the form's own default ("N/A") do
+    not count."""
+    return sum(
+        1 for col, value in row.items()
+        if col not in _NOT_COUNTED and not col.startswith("_")
+        and str(value).strip() not in ("", "No", "N/A")
+    )
