@@ -447,6 +447,10 @@ DEFAULT_SETTINGS_FILE = Path(__file__).resolve().parent / "reader-settings.txt"
 JOB_DEPTH = {"year": 2, "month": 1, "job": 0}
 
 
+class Cancelled(Exception):
+    """The person pressed Stop. Results read so far are kept."""
+
+
 class SettingsError(Exception):
     """A problem in the settings, worded for the person who wrote them."""
 
@@ -461,16 +465,22 @@ class Settings:
     match: str = "partial"       # partial | complete
     out: str = ""
 
-    def describe(self) -> str:
-        names = "\n".join(f"  - {n}" for n in self.names) or "  (every PDF)"
+    def to_text(self) -> str:
+        """The settings in reader-settings.txt form (load_settings reads it back)."""
+        names = "".join(f"  - {n}\n" for n in self.names)
         return (
             f"Folder to read: {self.folder}\n"
             f"Folder is: {self.start}\n"
             f"Look in: {'main job folder' if self.look_in == 'main' else 'all subfolders'}\n"
             f"Include zip files: {'yes' if self.zips else 'no'}\n"
-            f"File names:\n{names}\n"
+            f"File names:\n{names}"
             f"Match: {self.match}\n"
+            f"Results folder: {self.out}\n"
         )
+
+    def describe(self) -> str:
+        text = self.to_text()
+        return text if self.names else text.replace("File names:\n", "File names: (every PDF)\n")
 
 
 _CHOICES = {
@@ -539,6 +549,14 @@ def load_settings(path: Path) -> Settings:
     return settings
 
 
+def save_settings(settings: Settings, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "# PDF form reader settings, saved by the app. Safe to edit by hand.\n" + settings.to_text(),
+        encoding="utf-8",
+    )
+
+
 def _normal(name: str) -> str:
     """A file name for comparing: no .pdf ending, capitals and extra spaces ignored."""
     name = " ".join(name.split()).casefold()
@@ -605,12 +623,18 @@ def _read_zip(data: bytes, parts: list[str], shown: str, report: Report, setting
                 report.add(parts, inner_shown, read_pdf(inner), matched or "")
 
 
-def scan(root: Path, report: Report, settings: Settings, quiet: bool = False):
+def scan(root: Path, report: Report, settings: Settings, quiet: bool = False,
+         on_progress=None, should_stop=None):
     """Read the PDFs the settings ask for. Folders below a job folder are not
-    even opened when only the main job folder is wanted."""
+    even opened when only the main job folder is wanted.
+
+    on_progress(files_read, path_shown) is called for each file read;
+    should_stop() is checked between files and raises Cancelled when true."""
     job_depth = JOB_DEPTH[settings.start]
     seen = 0
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        if should_stop and should_stop():
+            raise Cancelled()
         here = Path(dirpath)
         depth = len(here.relative_to(root).parts)
         dirnames.sort()
@@ -621,6 +645,8 @@ def scan(root: Path, report: Report, settings: Settings, quiet: bool = False):
             is_zip = lower.endswith(".zip")
             if not (lower.endswith(".pdf") or is_zip):
                 continue
+            if should_stop and should_stop():
+                raise Cancelled()
             path = here / name
             parts = list(path.relative_to(root).parts)
             shown = "/".join(parts)
@@ -650,7 +676,9 @@ def scan(root: Path, report: Report, settings: Settings, quiet: bool = False):
             else:
                 report.add(parts, shown, read_pdf(data), matched)
             seen += 1
-            if not quiet and seen % 50 == 0:
+            if on_progress:
+                on_progress(seen, shown)
+            elif not quiet and seen % 50 == 0:
                 print(f"  ...{seen} files read")
 
 
@@ -679,6 +707,43 @@ def build_settings(args) -> Settings:
     if not settings.folder:
         raise SettingsError('No folder to read. Fill in "Folder to read:" in the settings file.')
     return settings
+
+
+def results_folder_problem(root: Path, out_dir: Path) -> str | None:
+    """Why the results may not go in out_dir, or None when they may."""
+    if out_dir == root or root in out_dir.parents:
+        return "Please choose a results folder OUTSIDE the folder being read."
+    if out_dir.exists():
+        return f"That results folder already exists, so nothing was overwritten: {out_dir}"
+    synced = [m for m in CLOUD_SYNC_MARKERS if m.lower() in str(out_dir).lower()]
+    if synced:
+        return (
+            f"Stopped: the results folder looks like it syncs to the cloud ({synced[0]}),\n"
+            "so the results would be copied there. Nothing was read or written.\n"
+            "Choose a local folder that is not synced, e.g. C:\\Local\\form-results."
+        )
+    return None
+
+
+def dated_folder_name() -> str:
+    return f"pdf-form-results-{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
+
+
+def summary_lines(report: Report, settings: Settings) -> list[str]:
+    c = report.counts
+    lines = [
+        f"PDFs read: {c['pdfs']}",
+        f"   with form fields: {c['with_fields']}",
+        f"   form fields listed: {c['fields']}",
+        f"   needing a look: {c['problems']}  (see files.csv)",
+        f"PDFs passed over, name did not match: {c['name_skipped']}",
+        f"PDFs passed over, outside any job folder: {c['place_skipped']}",
+    ]
+    if settings.look_in == "main":
+        lines.append("Subfolders inside job folders were not opened (main job folder only).")
+    if c["zips_not_opened"]:
+        lines.append(f"Zip files not opened (zip files are switched off): {c['zips_not_opened']}")
+    return lines
 
 
 def main(argv=None) -> int:
@@ -714,24 +779,11 @@ def main(argv=None) -> int:
     if settings.out:
         out_dir = Path(settings.out).expanduser().resolve()
     else:
-        stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-        out_dir = Path.home() / "Documents" / f"pdf-form-results-{stamp}"
+        out_dir = Path.home() / "Documents" / dated_folder_name()
 
-    # Never write results into the folder being read: that is the shared job data.
-    if out_dir == root or root in out_dir.parents:
-        print("Please choose a results folder OUTSIDE the folder being read.")
-        return 2
-    if out_dir.exists():
-        print(f"That results folder already exists, so nothing was overwritten: {out_dir}")
-        return 2
-
-    synced = [m for m in CLOUD_SYNC_MARKERS if m.lower() in str(out_dir).lower()]
-    if synced:
-        print(
-            f"Stopped: the results folder looks like it syncs to the cloud ({synced[0]}),\n"
-            "so the results would be copied there. Nothing was read or written.\n"
-            'Set "Results folder:" to a local folder that is not synced, e.g. C:\\Local\\form-results.'
-        )
+    problem = results_folder_problem(root, out_dir)
+    if problem:
+        print(problem)
         return 2
 
     report = Report(out_dir, settings.start, root.name)
@@ -745,19 +797,9 @@ def main(argv=None) -> int:
     finally:
         report.close()
 
-    c = report.counts
     if not args.quiet:
         print()
-        print(f"PDFs read:                       {c['pdfs']}")
-        print(f"  with form fields:              {c['with_fields']}")
-        print(f"  form fields listed:            {c['fields']}")
-        print(f"  needing a look:                {c['problems']}  (see files.csv)")
-        print(f"PDFs passed over, name did not match:      {c['name_skipped']}")
-        print(f"PDFs passed over, outside any job folder:  {c['place_skipped']}")
-        if settings.look_in == "main":
-            print("Subfolders inside job folders were not opened (Look in: main job folder).")
-        if c["zips_not_opened"]:
-            print(f"Zip files not opened (zips are set to no): {c['zips_not_opened']}")
+        print("\n".join(summary_lines(report, settings)))
         print()
         print(f"Results: {out_dir}")
         print("They contain real client data. Keep them on this computer and delete them when done.")

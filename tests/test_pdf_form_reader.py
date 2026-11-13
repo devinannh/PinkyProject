@@ -9,6 +9,7 @@ No real job files are used or stored. To run:
 
 import csv
 import io
+import os
 import sys
 import tempfile
 import unittest
@@ -345,6 +346,20 @@ class ChoosingWhatToRead(unittest.TestCase):
         self.assertEqual(s.names, ["worksheet"])
 
 
+class SavedSettings(unittest.TestCase):
+    def test_save_and_load_give_back_the_same_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "app" / "settings.txt"
+            for original in (
+                reader.Settings(folder=r"D:\Jobs\2026", start="month", look_in="all", zips=True,
+                                names=["worksheet", "Job Info Sheet.pdf"], match="complete",
+                                out=r"C:\Local\results"),
+                reader.Settings(folder="/Volumes/Jobs/2026"),
+            ):
+                reader.save_settings(original, path)
+                self.assertEqual(reader.load_settings(path), original)
+
+
 class NameMatching(unittest.TestCase):
     def match(self, filename, names, how):
         return reader.name_matches(filename, reader.Settings(names=names, match=how))
@@ -360,9 +375,100 @@ class NameMatching(unittest.TestCase):
         self.assertEqual(self.match("anything.pdf", [], "partial"), "")
 
 
+def _window_available():
+    try:
+        import tkinter
+        tkinter.Tk().destroy()
+        return True
+    except Exception:
+        return False
+
+
+@unittest.skipUnless(_window_available(), "needs a screen and tkinter")
+class AppWindow(unittest.TestCase):
+    """The window version, driven the way a person would use it."""
+
+    def setUp(self):
+        import tkinter
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name)
+        self._old_local = os.environ.get("LOCALAPPDATA")
+        os.environ["LOCALAPPDATA"] = str(base / "appdata")
+        job = base / "2026" / "March" / "Job 140205"
+        job.mkdir(parents=True)
+        (job / "Smith Worksheet.pdf").write_bytes(fillable_form(True))
+        (job / "Notice.pdf").write_bytes(fillable_form(True))
+        (base / "results").mkdir()
+        self.base = base
+        import pdf_form_reader_app as app_module
+        self.app_module = app_module
+        self.root = tkinter.Tk()
+        self.app = app_module.App(self.root)
+        self.app.folder.set(str(base / "2026"))
+        self.app.results_parent.set(str(base / "results"))
+
+    def tearDown(self):
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+        if self._old_local is None:
+            os.environ.pop("LOCALAPPDATA", None)
+        else:
+            os.environ["LOCALAPPDATA"] = self._old_local
+        self.tmp.cleanup()
+
+    def wait_until_finished(self):
+        import time
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            self.root.update()
+            if self.app.worker and not self.app.worker.is_alive() and self.app.events.empty():
+                self.root.update()
+                if str(self.app.run_btn["state"]) == "normal":
+                    return
+            time.sleep(0.05)
+        self.fail("the run did not finish")
+
+    def test_add_names_ignores_repeats(self):
+        for name in ("worksheet", "  Worksheet ", "notice"):
+            self.app.new_name.set(name)
+            self.app.add_name()
+        self.assertEqual(self.app.current_settings().names, ["worksheet", "notice"])
+
+    def test_a_run_reads_the_chosen_pdfs_and_remembers_the_settings(self):
+        self.app.new_name.set("worksheet")
+        self.app.add_name()
+        self.app.start_run()
+        self.wait_until_finished()
+        self.assertEqual(self.app.status.get(), "Finished.")
+        results = list((self.base / "results").glob("pdf-form-results-*"))
+        self.assertEqual(len(results), 1)
+        with open(results[0] / "files.csv", encoding="utf-8-sig") as fh:
+            files = [r["File"] for r in csv.DictReader(fh)]
+        self.assertEqual(files, ["March/Job 140205/Smith Worksheet.pdf"])
+        remembered = reader.load_settings(self.app_module.settings_path())
+        self.assertEqual(remembered.names, ["worksheet"])
+        self.assertEqual(remembered.folder, str(self.base / "2026"))
+
+    def test_stop(self):
+        self.app.stop_flag.set()  # pressed before the first file: nothing is read
+        settings = self.app.current_settings()
+        out = self.base / "results" / "stopped"
+        self.app._work(settings, Path(settings.folder).resolve(), out)
+        kind, payload = self.app.events.get_nowait()
+        self.assertEqual(kind, "done")
+        self.assertTrue(payload[3])  # marked as stopped
+        self.assertEqual(payload[0].counts["pdfs"], 0)
+
+
 class NoInternet(unittest.TestCase):
     def test_imports_nothing_that_reaches_the_network(self):
-        source = (Path(__file__).resolve().parent.parent / "pdf_form_reader.py").read_text()
+        for source_file in ("pdf_form_reader.py", "pdf_form_reader_app.py"):
+            self._check(source_file)
+
+    def _check(self, source_file):
+        source = (Path(__file__).resolve().parent.parent / source_file).read_text(encoding="utf-8")
         for banned in ("socket", "urllib", "http.client", "requests", "smtplib", "ftplib", "subprocess"):
             self.assertNotIn(f"import {banned}", source)
             self.assertNotIn(f"from {banned}", source)

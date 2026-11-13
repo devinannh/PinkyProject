@@ -13,67 +13,52 @@ It does **not** use AI and does **not** put anything into the portal. It
 shows you what is in the forms so we can decide which form fields belong in
 which portal fields.
 
-## One-time setup
+## The app (Windows)
 
-1. Install Python from https://www.python.org/downloads/ .
-   On Windows, tick **"Add python.exe to PATH"** on the first screen.
-2. Download this folder (GitHub: **Code**, then **Download ZIP**) and unzip it
-   somewhere like your Documents.
-3. Open a command window in that folder:
-   - **Windows:** open the folder in File Explorer, click the address bar,
-     type `cmd` and press Enter.
-   - **Mac:** right-click the folder in Finder, then **New Terminal at Folder**.
-4. Install the PDF library (once):
-   - Windows: `py -m pip install -r requirements.txt`
-   - Mac: `python3 -m pip install -r requirements.txt`
+### Getting it
 
-## Choosing what to read: `reader-settings.txt`
+1. On GitHub, open this project, then the **Actions** tab.
+2. Click the newest **Build Windows app** run with a green tick.
+3. Under **Artifacts** at the bottom, click **PDF-Form-Reader-for-Windows**.
+   A zip downloads.
+4. Open the zip and drag **PDF Form Reader.exe** to your Desktop (or any
+   folder on your computer). There is nothing to install.
 
-Open **reader-settings.txt** (in this folder) in Notepad (Windows) or
-TextEdit (Mac), change the text after each colon, and save. Each setting has
-a short explanation beside it.
+**The first time you open it, Windows may warn you.** The app is not signed
+with a paid company certificate, so Windows shows "Windows protected your
+PC". Click **More info**, then **Run anyway**. You will not be asked again
+for that copy. If your antivirus or IT policy blocks it, IT can allow it, or
+we can look at signing it.
 
-| Setting | What to put |
-| --- | --- |
-| Folder to read | The year folder, e.g. `D:\Jobs\2026` |
-| Folder is | `year`, `month` or `job`: what that folder is. Use `month` or `job` to try a small batch first. |
-| Look in | `main job folder`: only files sitting directly in each job folder; subfolders are not opened. `all subfolders`: the job folder and every folder inside it. |
-| Include zip files | `no` or `yes`. With `yes`, PDFs inside zip files in those places are read too. |
-| File names | The names to look for, one per line, each starting with a dash. No dashes = every PDF. |
-| Match | `partial`: the PDF's name **contains** one of the names. `complete`: the PDF's name **is** one of the names. |
-| Results folder | Where results go. Blank = a new dated folder in Documents. |
+### Using it
 
-Matching ignores capital letters, extra spaces and the `.pdf` ending. With
-the name `worksheet`:
+1. **Folder to read**: click **Browse…** and pick the year folder (or one
+   month or one job to try a small batch first), and say which it is.
+2. **Where to look**: *Main job folder only* reads files sitting directly in
+   each job folder and does not open subfolders. *All its subfolders* reads
+   everything inside the job folder. Tick *Also read PDFs inside zip files*
+   to include zips.
+3. **File names to look for**: type a name, press **Add name** (or Enter).
+   Choose **Partial** (the file name contains it) or **Complete** (the file
+   name is exactly it). An empty list reads every PDF.
+4. **Save results in**: pick a folder on this computer. A new dated folder is
+   made inside it each time, so earlier results are never overwritten.
+5. Press **Read PDFs**. **Stop** halts after the current file. When it
+   finishes, **Open results folder** shows the spreadsheets.
 
-| PDF name | partial | complete |
+The app remembers your choices for next time. It keeps them in
+`%LOCALAPPDATA%\PDF Form Reader\settings.txt`, which holds folder paths and
+file names only, never anything read from a PDF.
+
+With the name `worksheet`:
+
+| PDF name | Partial | Complete |
 | --- | --- | --- |
 | `Worksheet.pdf` | found | found |
 | `Smith Worksheet FINAL.pdf` | found | not found |
 | `Notice of Deposition.pdf` | not found | not found |
 
-A typo in the settings stops the reader before it reads anything, and it says
-which line to fix.
-
-## Running it
-
-Open a command window in this folder (see setup, step 3) and type:
-
-- Windows: `py pdf_form_reader.py`
-- Mac: `python3 pdf_form_reader.py`
-
-On Windows you can also **double-click `pdf_form_reader.py`**. The window
-stays open at the end until you press Enter.
-
-The screen shows the settings it used and a count of what it did: PDFs read,
-PDFs passed over because the name did not match, and zip files not opened.
-If the count looks wrong, check the settings and run it again into a new
-results folder (it never overwrites earlier results).
-
-For a one-off run without editing the file, settings can be typed after the
-command and override the file, e.g.
-`py pdf_form_reader.py "D:\Jobs\2026\March" --start month --name worksheet --match complete`.
-Type `py pdf_form_reader.py --help` to list them.
+Capital letters, extra spaces and the `.pdf` ending never matter.
 
 ## What you get
 
@@ -117,12 +102,79 @@ damaged, or skipped.
 computers, Documents is synced to OneDrive (or iCloud on a Mac), which would
 copy the results there. The reader stops without reading anything when the
 results folder looks synced (OneDrive, iCloud, Dropbox, Google Drive, Box).
-Run it again with `--out` pointing at a local folder that is not synced, such
-as `--out "C:\Local\form-results"`.
+Choose a local folder that is not synced instead, such as `C:\Local\form-results`
+(in the app: **Save results in**; on the command line: `--out`).
 
 The spreadsheets contain real client data. Keep them on your computer, do
 not email or upload them, and delete the results folder once the values have
 been checked and imported.
+
+## Advanced: running it without the app
+
+The same reader can run from a command window, for anyone who prefers
+that. It is not needed with the app.
+
+### One-time setup
+
+1. Install Python from https://www.python.org/downloads/ .
+   On Windows, tick **"Add python.exe to PATH"** on the first screen.
+2. Download this folder (GitHub: **Code**, then **Download ZIP**) and unzip it
+   somewhere like your Documents.
+3. Open a command window in that folder:
+   - **Windows:** open the folder in File Explorer, click the address bar,
+     type `cmd` and press Enter.
+   - **Mac:** right-click the folder in Finder, then **New Terminal at Folder**.
+4. Install the PDF library (once):
+   - Windows: `py -m pip install -r requirements.txt`
+   - Mac: `python3 -m pip install -r requirements.txt`
+
+### Choosing what to read: `reader-settings.txt`
+
+Open **reader-settings.txt** (in this folder) in Notepad (Windows) or
+TextEdit (Mac), change the text after each colon, and save. Each setting has
+a short explanation beside it.
+
+| Setting | What to put |
+| --- | --- |
+| Folder to read | The year folder, e.g. `D:\Jobs\2026` |
+| Folder is | `year`, `month` or `job`: what that folder is. Use `month` or `job` to try a small batch first. |
+| Look in | `main job folder`: only files sitting directly in each job folder; subfolders are not opened. `all subfolders`: the job folder and every folder inside it. |
+| Include zip files | `no` or `yes`. With `yes`, PDFs inside zip files in those places are read too. |
+| File names | The names to look for, one per line, each starting with a dash. No dashes = every PDF. |
+| Match | `partial`: the PDF's name **contains** one of the names. `complete`: the PDF's name **is** one of the names. |
+| Results folder | Where results go. Blank = a new dated folder in Documents. |
+
+Matching ignores capital letters, extra spaces and the `.pdf` ending. With
+the name `worksheet`:
+
+| PDF name | partial | complete |
+| --- | --- | --- |
+| `Worksheet.pdf` | found | found |
+| `Smith Worksheet FINAL.pdf` | found | not found |
+| `Notice of Deposition.pdf` | not found | not found |
+
+A typo in the settings stops the reader before it reads anything, and it says
+which line to fix.
+
+### Running it
+
+Open a command window in this folder (see setup, step 3) and type:
+
+- Windows: `py pdf_form_reader.py`
+- Mac: `python3 pdf_form_reader.py`
+
+On Windows you can also **double-click `pdf_form_reader.py`**. The window
+stays open at the end until you press Enter.
+
+The screen shows the settings it used and a count of what it did: PDFs read,
+PDFs passed over because the name did not match, and zip files not opened.
+If the count looks wrong, check the settings and run it again into a new
+results folder (it never overwrites earlier results).
+
+For a one-off run without editing the file, settings can be typed after the
+command and override the file, e.g.
+`py pdf_form_reader.py "D:\Jobs\2026\March" --start month --name worksheet --match complete`.
+Type `py pdf_form_reader.py --help` to list them.
 
 ## For developers
 
@@ -130,3 +182,8 @@ Tests use made-up forms built in memory; no real file is ever stored here.
 
     python -m pip install -r requirements-dev.txt
     python -m unittest discover -s tests -v
+
+The window tests run only where there is a screen; elsewhere they are skipped.
+The .exe is built by `.github/workflows/build-windows-exe.yml` on a GitHub
+Windows machine, which runs every test, builds with PyInstaller, and starts
+the finished .exe with `--selftest` before offering it for download.
