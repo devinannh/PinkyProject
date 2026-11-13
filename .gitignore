@@ -1,0 +1,12 @@
+# Real job data must never be committed here. The reader's results and any
+# job files are blocked; the tests build their own made-up forms in memory.
+*.csv
+*.pdf
+*.PDF
+*.zip
+*.ZIP
+pdf-form-results-*/
+results/
+__pycache__/
+*.pyc
+.venv/
