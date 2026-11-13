@@ -1,7 +1,8 @@
 # PDF form reader
 
-Lists every fillable field in every PDF under a folder: text boxes,
-checkboxes, toggles, radio buttons, dropdowns and lists. You get one
+Lists every fillable field in the PDFs you choose (by file name and by
+where they sit in the job folders): text boxes, checkboxes, toggles, radio
+buttons, dropdowns and lists. You get one
 spreadsheet with what each field holds.
 
 **It runs only on your computer.** It makes no internet connection, sends
@@ -26,22 +27,53 @@ which portal fields.
    - Windows: `py -m pip install -r requirements.txt`
    - Mac: `python3 -m pip install -r requirements.txt`
 
+## Choosing what to read: `reader-settings.txt`
+
+Open **reader-settings.txt** (in this folder) in Notepad (Windows) or
+TextEdit (Mac), change the text after each colon, and save. Each setting has
+a short explanation beside it.
+
+| Setting | What to put |
+| --- | --- |
+| Folder to read | The year folder, e.g. `D:\Jobs\2026` |
+| Folder is | `year`, `month` or `job`: what that folder is. Use `month` or `job` to try a small batch first. |
+| Look in | `main job folder`: only files sitting directly in each job folder; subfolders are not opened. `all subfolders`: the job folder and every folder inside it. |
+| Include zip files | `no` or `yes`. With `yes`, PDFs inside zip files in those places are read too. |
+| File names | The names to look for, one per line, each starting with a dash. No dashes = every PDF. |
+| Match | `partial`: the PDF's name **contains** one of the names. `complete`: the PDF's name **is** one of the names. |
+| Results folder | Where results go. Blank = a new dated folder in Documents. |
+
+Matching ignores capital letters, extra spaces and the `.pdf` ending. With
+the name `worksheet`:
+
+| PDF name | partial | complete |
+| --- | --- | --- |
+| `Worksheet.pdf` | found | found |
+| `Smith Worksheet FINAL.pdf` | found | not found |
+| `Notice of Deposition.pdf` | not found | not found |
+
+A typo in the settings stops the reader before it reads anything, and it says
+which line to fix.
+
 ## Running it
 
-Point it at the year folder. Put the folder in quotes:
+Open a command window in this folder (see setup, step 3) and type:
 
-- Windows: `py pdf_form_reader.py "D:\Jobs\2026"`
-- Mac: `python3 pdf_form_reader.py "/Volumes/Jobs/2026"`
+- Windows: `py pdf_form_reader.py`
+- Mac: `python3 pdf_form_reader.py`
 
-To try one month or one job first, add `--start month` or `--start job`:
+On Windows you can also **double-click `pdf_form_reader.py`**. The window
+stays open at the end until you press Enter.
 
-- `py pdf_form_reader.py "D:\Jobs\2026\March" --start month`
-- `py pdf_form_reader.py "D:\Jobs\2026\March\Job 140205" --start job`
+The screen shows the settings it used and a count of what it did: PDFs read,
+PDFs passed over because the name did not match, and zip files not opened.
+If the count looks wrong, check the settings and run it again into a new
+results folder (it never overwrites earlier results).
 
-Results go into a new dated folder in your **Documents**, for example
-`Documents\pdf-form-results-2026-11-13_101500`. To choose another place, add
-`--out "C:\somewhere\new-folder"`. It refuses to write inside the folder it
-is reading, and never overwrites earlier results.
+For a one-off run without editing the file, settings can be typed after the
+command and override the file, e.g.
+`py pdf_form_reader.py "D:\Jobs\2026\March" --start month --name worksheet --match complete`.
+Type `py pdf_form_reader.py --help` to list them.
 
 ## What you get
 
@@ -60,9 +92,11 @@ is reading, and never overwrites earlier results.
 | Choices offered | For dropdowns, lists and radio buttons: every option |
 | Raw value | Exactly what the PDF stores, for checking |
 
-**files.csv**: one row per PDF, saying whether its form was read and, if
-not, why: no fillable fields (a scan or a flattened form), password-protected,
+**files.csv**: one row per PDF read, with which of your file names it
+matched, and whether its form was read and, if not, why: no fillable fields (a scan or a flattened form), password-protected,
 damaged, or skipped.
+
+**settings-used.txt**: the settings that produced these results.
 
 ## Things to know
 

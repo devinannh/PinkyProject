@@ -172,7 +172,7 @@ class WholeFolder(unittest.TestCase):
         return fields, files
 
     def test_finds_pdfs_in_subfolders_and_zips(self):
-        fields, files = self.run_reader()
+        fields, files = self.run_reader("--look-in", "all", "--zips", "yes")
         names = sorted(f["File"] for f in files)
         self.assertEqual(
             names,
@@ -194,7 +194,7 @@ class WholeFolder(unittest.TestCase):
         self.assertIn("-12", counts)  # a negative number is left alone
 
     def test_source_folder_is_untouched(self):
-        self.run_reader()
+        self.run_reader("--look-in", "all", "--zips", "yes")
         base = Path(self.tmp.name)
         after = sorted(
             (p.relative_to(base), p.stat().st_mtime) for p in base.rglob("*") if "results" not in p.parts
@@ -221,6 +221,143 @@ class WholeFolder(unittest.TestCase):
         with open(self.out / "files.csv", encoding="utf-8-sig") as fh:
             files = list(csv.DictReader(fh))
         self.assertTrue(all(f["Month"] == "March" and f["Job folder"] == "Job 140205" for f in files))
+
+
+class ChoosingWhatToRead(unittest.TestCase):
+    """File-name matching (partial / complete) and where to look."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name)
+        self.root = self.base / "2026"
+        job1 = self.root / "March" / "Job 140205"
+        job2 = self.root / "April" / "Job 140300"
+        (job1 / "Sub").mkdir(parents=True)
+        job2.mkdir(parents=True)
+        form = fillable_form(True)
+        (job1 / "Smith Worksheet FINAL.pdf").write_bytes(form)
+        (job1 / "worksheet.pdf").write_bytes(form)
+        (job1 / "Notice.pdf").write_bytes(form)
+        (job1 / "Sub" / "worksheet.pdf").write_bytes(form)
+        (job1 / "bundle.zip").write_bytes(zipped({"docs/worksheet.pdf": form, "docs/other.pdf": form}))
+        (job2 / "WORKSHEET.PDF").write_bytes(form)
+        (self.root / "March" / "loose worksheet.pdf").write_bytes(form)
+        self.out = self.base / "results"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def files_read(self, *args):
+        code = reader.main([*args, "--out", str(self.out), "--quiet"])
+        self.assertEqual(code, 0)
+        with open(self.out / "files.csv", encoding="utf-8-sig") as fh:
+            rows = list(csv.DictReader(fh))
+        return {r["File"]: r for r in rows}
+
+    def test_default_is_main_job_folder_partial_no_zips(self):
+        got = self.files_read(str(self.root), "--name", "worksheet")
+        self.assertEqual(sorted(got), [
+            "April/Job 140300/WORKSHEET.PDF",
+            "March/Job 140205/Smith Worksheet FINAL.pdf",
+            "March/Job 140205/worksheet.pdf",
+        ])
+        self.assertEqual({r["Matched name"] for r in got.values()}, {"worksheet"})
+
+    def test_complete_match(self):
+        got = self.files_read(str(self.root), "--name", "Worksheet.pdf", "--match", "complete")
+        self.assertEqual(sorted(got), ["April/Job 140300/WORKSHEET.PDF", "March/Job 140205/worksheet.pdf"])
+
+    def test_several_names(self):
+        got = self.files_read(str(self.root), "--name", "notice", "--name", "worksheet", "--match", "complete")
+        self.assertEqual(got["March/Job 140205/Notice.pdf"]["Matched name"], "notice")
+        self.assertEqual(len(got), 3)
+
+    def test_all_subfolders(self):
+        got = self.files_read(str(self.root), "--name", "worksheet", "--match", "complete", "--look-in", "all")
+        self.assertIn("March/Job 140205/Sub/worksheet.pdf", got)
+        self.assertNotIn("March/loose worksheet.pdf", got)  # not inside a job folder
+
+    def test_zips_yes_reads_only_matching_pdfs_inside(self):
+        got = self.files_read(str(self.root), "--name", "worksheet", "--match", "complete", "--zips", "yes")
+        self.assertIn("March/Job 140205/bundle.zip > docs/worksheet.pdf", got)
+        self.assertNotIn("March/Job 140205/bundle.zip > docs/other.pdf", got)
+
+    def test_no_names_reads_every_pdf_in_the_main_folders(self):
+        got = self.files_read(str(self.root))
+        self.assertEqual(len(got), 4)
+        self.assertIn("March/Job 140205/Notice.pdf", got)
+
+    def test_counts_what_was_passed_over(self):
+        settings = reader.Settings(folder=str(self.root), names=["worksheet"], match="complete")
+        self.out.mkdir()
+        rep = reader.Report(self.out / "r", "year", "2026")
+        reader.scan(self.root, rep, settings, quiet=True)
+        rep.close()
+        self.assertEqual(rep.counts["pdfs"], 2)
+        self.assertEqual(rep.counts["name_skipped"], 2)    # Smith Worksheet FINAL, Notice
+        self.assertEqual(rep.counts["place_skipped"], 1)   # the loose one in March
+        self.assertEqual(rep.counts["zips_not_opened"], 1)
+
+    def write_settings(self, text):
+        path = self.base / "my-settings.txt"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_settings_file(self):
+        path = self.write_settings(
+            f"# a note\nFolder to read: {self.root}\nFolder is: year\nLook in: all subfolders\n"
+            f"Include zip files: yes\nFile names:\n  - worksheet\n  - notice\nMatch: Complete\n"
+            f"Results folder: {self.out}\n"
+        )
+        code = reader.main(["--settings", str(path), "--quiet"])
+        self.assertEqual(code, 0)
+        with open(self.out / "files.csv", encoding="utf-8-sig") as fh:
+            got = {r["File"] for r in csv.DictReader(fh)}
+        self.assertEqual(got, {
+            "April/Job 140300/WORKSHEET.PDF",
+            "March/Job 140205/worksheet.pdf",
+            "March/Job 140205/Notice.pdf",
+            "March/Job 140205/Sub/worksheet.pdf",
+            "March/Job 140205/bundle.zip > docs/worksheet.pdf",
+        })
+        used = (self.out / "settings-used.txt").read_text()
+        self.assertIn("Match: complete", used)
+        self.assertIn("  - notice", used)
+
+    def test_names_on_one_line(self):
+        path = self.write_settings(f"Folder to read: {self.root}\nFile names: notice; worksheet\nMatch: complete\n")
+        self.assertEqual(reader.load_settings(path).names, ["notice", "worksheet"])
+
+    def test_settings_mistakes_are_explained_and_nothing_runs(self):
+        for text in (
+            f"Folder to read: {self.root}\nMatch: sort of\n",
+            f"Folder to read: {self.root}\nColour: blue\n",
+            f"Folder to read: {self.root}\n  - worksheet\n",
+            "Match: partial\n",
+        ):
+            path = self.write_settings(text)
+            self.assertEqual(reader.main(["--settings", str(path), "--quiet", "--out", str(self.out)]), 2, text)
+            self.assertFalse(self.out.exists())
+
+    def test_the_shipped_settings_file_is_valid(self):
+        s = reader.load_settings(Path(__file__).resolve().parent.parent / "reader-settings.txt")
+        self.assertEqual((s.look_in, s.zips, s.match, s.start), ("main", False, "partial", "year"))
+        self.assertEqual(s.names, ["worksheet"])
+
+
+class NameMatching(unittest.TestCase):
+    def match(self, filename, names, how):
+        return reader.name_matches(filename, reader.Settings(names=names, match=how))
+
+    def test_partial_and_complete(self):
+        self.assertEqual(self.match("Smith  WORKSHEET final.pdf", ["worksheet"], "partial"), "worksheet")
+        self.assertIsNone(self.match("Smith Worksheet final.pdf", ["worksheet"], "complete"))
+        self.assertEqual(self.match("Worksheet.PDF", ["worksheet"], "complete"), "worksheet")
+        self.assertEqual(self.match("Job  Info Sheet.pdf", ["job info sheet.pdf"], "complete"), "job info sheet.pdf")
+        self.assertIsNone(self.match("notice.pdf", ["worksheet"], "partial"))
+
+    def test_no_names_means_every_pdf(self):
+        self.assertEqual(self.match("anything.pdf", [], "partial"), "")
 
 
 class NoInternet(unittest.TestCase):

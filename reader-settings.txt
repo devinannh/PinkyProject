@@ -1,0 +1,38 @@
+# ============================================================
+#  PDF form reader - settings
+#  Change the text after each colon, save this file, then run
+#  the reader. Lines starting with # are notes and are ignored.
+# ============================================================
+
+# The folder to read. Usually the year folder.
+Folder to read: D:\Jobs\2026
+
+# What the folder above is: year, month or job
+Folder is: year
+
+# Where to look inside each job folder:
+#   main job folder  - only files sitting directly in the job folder
+#                      (subfolders are not opened)
+#   all subfolders   - the job folder and every folder inside it
+Look in: main job folder
+
+# Also read PDFs inside zip files that sit in those places? yes or no
+Include zip files: no
+
+# File names to look for. One per line, each starting with a dash.
+# Leave the list empty (no dashes) to read every PDF.
+File names:
+  - worksheet
+
+# How to compare the file names above with each PDF's name:
+#   partial  - the PDF's name CONTAINS one of them
+#              ("worksheet" finds "Smith Worksheet FINAL.pdf")
+#   complete - the PDF's name IS exactly one of them
+#              ("worksheet" finds "Worksheet.pdf" but not "Worksheet 2.pdf")
+# Capital letters, extra spaces and the ".pdf" ending never matter.
+Match: partial
+
+# Where to put the results. Leave blank for a new dated folder in
+# Documents. It must not be a OneDrive, iCloud, Dropbox, Google Drive
+# or Box folder, because those copy files to the cloud.
+Results folder:
