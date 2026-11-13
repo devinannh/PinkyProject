@@ -5,6 +5,11 @@ where each one could go in the portal. **Nothing here is decided.** Every
 "Proposed" destination waits for DevinAnn's approval; nothing is imported until
 then.
 
+**Billing is out of scope for now** (DevinAnn, 2026-11-13: *"Ignore the
+Billing section for now. If I confirm it is needed later, we can circle
+back."*). The page 2 Billing fields are listed below for completeness only;
+Pinky will not map or import them unless that changes.
+
 Read from four blank copies DevinAnn supplied on 2026-11-13. No client data was
 used, and no PDF is stored in this repository.
 
@@ -28,7 +33,7 @@ The file names do not say which version a form is ("Pink Sheet", "UPDATED",
 
 These are true of every version and limit what can be imported.
 
-1. **The ten billing numbers on page 2 are ONE field** ("Text13"): Page Count,
+1. *(Billing, out of scope for now.)* **The ten billing numbers on page 2 are ONE field** ("Text13"): Page Count,
    Bill Rate, Pay Rate, Appearance Fee and Exhibits – Page Count (original), and
    Billing Rate, Pay Rate, Exhibits – Page Count, Shipping and Check Message
    (copy). Typing in any one of them puts the same text in all ten. **Pinky gets
@@ -104,14 +109,17 @@ recommended not to import; **Unusable** = cannot be read reliably (section 2).
 | 10 checklist rows (Ensure Headers … Ensure Exhibit Page Count) | Check Box31.0 – 31.8, Check Box14 | Ticks | all | Final QC checklist | Skip (proposed) |
 | (1) O-Email, O-Email Invoice, (2)–(5) C-Email, C-Email Invoice | Text34.0 – Text34.9 | Text (e-mail addresses) | all | Who the original and copies (and their invoices) went to: client contacts. Delivery record, if wanted | Decide |
 
-### Page 2: Billing
+### Page 2: Billing (out of scope for now)
+
+Not mapped or imported (DevinAnn, 2026-11-13). Kept here so the work is not
+lost if Billing is brought back in.
 
 | Printed label | Field | Type | Versions | Proposed portal home | Status |
 | --- | --- | --- | --- | --- | --- |
-| BILLING COMPLETED BY | Dropdown2 (+ tick Check Box35) | Staff first name (billing staff) | all | Billing assignee (by user number, through the name table) | Proposed |
-| Original: Rush / COD / Shipping | Dropdown5, Dropdown15, Dropdown3 | Yes/No, Yes/No, FedEx 2-Day … E-mail Only | all | Billing sheet in Production state | Decide (Leanne's lane) |
-| Copy: Rush / COD / Shipping | Dropdown16, Dropdown18, Dropdown19 | same | all | Billing sheet | Decide (Leanne's lane) |
-| Page Count, Bill/Pay/Billing Rate, Appearance Fee, Exhibit Page Counts, Shipping, Check Message | Text13 (one field, ten boxes) | Text | all | — | Unusable |
+| BILLING COMPLETED BY | Dropdown2 (+ tick Check Box35) | Staff first name (billing staff) | all | — | Out of scope |
+| Original: Rush / COD / Shipping | Dropdown5, Dropdown15, Dropdown3 | Yes/No, Yes/No, FedEx 2-Day … E-mail Only | all | — | Out of scope |
+| Copy: Rush / COD / Shipping | Dropdown16, Dropdown18, Dropdown19 | same | all | — | Out of scope |
+| Page Count, Bill/Pay/Billing Rate, Appearance Fee, Exhibit Page Counts, Shipping, Check Message | Text13 (one field, ten boxes) | Text | all | — | Out of scope (and unusable as it stands) |
 
 ## 4. Decisions for DevinAnn
 
@@ -119,12 +127,12 @@ recommended not to import; **Unusable** = cannot be read reliably (section 2).
    R&S, flags, what was ordered, exhibits) and who completed each stage. Leave
    out the checklist ticks: they record a finished step, they differ by version,
    and two of them are unreliable (section 2).
-2. **Billing rows go to Leanne** (billing is her lane); the ten billing numbers
-   cannot be imported as they stand.
+2. ~~Billing rows go to Leanne.~~ **Resolved 2026-11-13: Billing is out of
+   scope for now** (DevinAnn). Revisit only if she confirms it is needed.
 3. **Meanings to confirm:** "Original +", the line under each Originals choice,
    and whose address the R&S e-mail is.
 4. **The staff name → user table:** a short list, one row per first name that
    appears in the dropdowns, approved by a person before any import.
 5. **The form going forward:** if the Pink Sheet is still being filled in,
-   splitting "Text13" and "Check Box18.11" into separate fields would make
-   future sheets fully readable.
+   giving "Check Box18.11" a separate box on each row would make future sheets
+   fully readable (and "Text13" too, if Billing comes back).
