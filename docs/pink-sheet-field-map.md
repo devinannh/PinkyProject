@@ -203,3 +203,70 @@ situation where multiple are truly filled out, I don't want it to guess."*
   the four blank templates: all count as blank.
 - **The same Job Number in two different job folders:** flagged on both rows,
   nothing dropped.
+
+## 6. Decided 2026-11-18 (DevinAnn)
+
+- **Original + is the portal's Transcript Order(s)** (Job Tracking Log ›
+  Turn In › Order Overview; choices None, O+1 – O+5; saved in the job's
+  production record as `orderOverview.transcript`). Pinky now adds a
+  **Transcript Order(s)** column beside Original +: "2" becomes "O+2", "0"
+  becomes "None". Anything else, or more than O+5, is left blank and flagged
+  in "Needs a look", never guessed.
+- **R&S Sent To, Videotaped and Interpreter are NOT mapped to the portal**, but
+  stay in pink-sheets.csv / the Excel workbook.
+- **The "Deposition summary is included in the transcript bundle" tick box is
+  ignored.** It was never output; no change to the form is needed.
+- **Pink Sheets only.** Word forms are not read; rows stay in folder order.
+
+### Proposed, waiting for DevinAnn: who did Checking and who did Printing
+
+The portal's **Intake** is the old Initial QC and Printing sections combined.
+Today it holds ONE assignee and ONE completion time
+(`production_state.initial_qc_assignee` / `_user_id` /
+`initial_qc_completed_at`), and its checklist ticks do not record who ticked
+them. So the portal cannot yet say that one person checked and another
+printed. DevinAnn: the portal must keep both names, never drop or merge one.
+
+Proposal: give each half of Intake its own "completed by":
+
+- **Checking completed by** and **Printing completed by**, each holding the
+  person's user number (where they have one), their name as written, and when.
+- Live use: stamped when that half's last required box is ticked (Checking:
+  Review QC Report … Verify Exhibit Parenthetical; Printing: Zip / Upload /
+  Print & Bind), and each written to the job's Audit Trail ("Intake: printing
+  completed by …").
+- Import: Pink Sheet "Initial QC by" fills Checking, "Printed by" fills
+  Printing, "Final QC by" fills Final QC.
+- Where: inside the job's production record, the way R&S verification already
+  keeps `{by, at}` — no database change. If the Job Tracking Log or reports
+  need to sort and filter by these people, two new columns beside the existing
+  Initial QC ones are the alternative; that is a migration and needs approval.
+
+### Proposed: the staff name table
+
+Some "completed by" names have no portal user number, and may have no RB user
+number either. Proposal: one row per first name that appears on the sheets —
+*name on the sheet → full name → portal user (if any)*. Where there is no
+portal user, the import keeps **the name as written with no number**, never a
+guessed number. This matches how the portal already keeps lane assignees:
+the number first, the name beside it as a fallback. An RB user number is not
+needed for the portal. DevinAnn approves the table before any import.
+
+### Proposed: getting approved rows into the portal
+
+- **Where it saves:** the portal's own database (the job's production record
+  and its witnesses), never Netlify Blobs. Any holding step before "apply" is
+  a database table too.
+- **Reviewing in Pinky** (approve, edit, remove rows) keeps real data on the
+  reviewer's computer until it is approved.
+- **Two ways to hand over:** (a) Pinky sends the approved rows straight to the
+  portal, which means signing in to the portal from Pinky; (b) Pinky saves an
+  approved file, and a small portal Import page takes it, checks every row
+  again, shows what will change, and applies it on confirm. Both need the same
+  portal-side checks; (b) avoids building sign-in into Pinky while the
+  portal's hosting (and its sign-in) is due to change.
+- Either way the portal re-checks every row (the job exists by Job Number,
+  witnesses match, names are in the approved table) and writes Audit Trail
+  entries in the uploader's name. Going through the portal is also what keeps
+  it from being a data repair (AGENTS.md: writes from outside the application
+  are Elizabeth's).

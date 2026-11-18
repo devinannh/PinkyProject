@@ -37,6 +37,32 @@ VERSIONS = {
     "October 13, 2025": "Oct 2025",
 }
 
+# "Original +" is the portal's Transcript Order(s) (Job Tracking Log > Turn In >
+# Order Overview), whose choices are None and O+1 to O+5 (DevinAnn,
+# 2026-11-13; portal: TRANSCRIPT_ORDER_CHOICES, saved as orderOverview.transcript).
+TRANSCRIPT_ORDER_MAX = 5
+_ORIGINAL_PLUS = re.compile(r"(?:o\s*)?\+?\s*(\d{1,3})", re.IGNORECASE)
+
+
+def transcript_order(original_plus: str) -> tuple[str, str]:
+    """'2' -> ('O+2', ''); '0' or 'None' -> ('None', ''); blank -> ('', '').
+    Anything else is left blank with the reason, never guessed."""
+    text = (original_plus or "").strip()
+    if not text:
+        return "", ""
+    if text.lower() in ("none", "no", "0"):
+        return "None", ""
+    m = _ORIGINAL_PLUS.fullmatch(text)
+    if not m:
+        return "", f'Original + "{text}" is not a number of copies'
+    n = int(m.group(1))
+    if n == 0:
+        return "None", ""
+    if n > TRANSCRIPT_ORDER_MAX:
+        return "", f"Original + is {n}; the portal's Transcript Order(s) goes up to O+{TRANSCRIPT_ORDER_MAX}"
+    return f"O+{n}", ""
+
+
 _REVISED = re.compile(r"Revised\s+([A-Z][a-z]+\s+\d{1,2},\s+\d{4})")
 
 # The witness rows at the top of page 1, top to bottom.
@@ -47,6 +73,7 @@ WITNESS_RS_SENT_TO = ["E-Mail", "Text15.0", "Text15.1", "Text15.2", "Text15.3", 
 # (column, field). Checkboxes come out as Yes / No.
 SHEET_COLUMNS = [
     ("Original +", "Text3"),
+    ("Transcript Order(s)", None),      # Original + in the portal's own wording (filled in below)
     ("Notes", ("Text4", "Text6")),
     ("Initial QC completed", "Check Box18.0.0"),
     ("Initial QC by", "Dropdown17.0"),
@@ -195,6 +222,10 @@ def row(fields: dict, page_one_text: str, page_two_job_number: str | None = None
         row[f"Witness {letter} R&S Sent To"] = sent
     if not listed:
         problems.append("No witness listed")
+    order, why = transcript_order(sheet.get("Original +", ""))
+    sheet["Transcript Order(s)"] = order
+    if why:
+        problems.append(why)
     row.update(sheet)
     row["Needs a look"] = "; ".join(problems)
     row["_witnesses"] = listed      # for the count; not a column

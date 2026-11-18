@@ -558,7 +558,7 @@ class PinkSheetMode(unittest.TestCase):
             "Witness A R&S Sent To": "Sam Counsel",
             "Witness B": "Lee Sample", "Witness B R&S": "Waived", "Witness B R&S Sent To": "",
             "Witness C": "", "Witness F R&S Sent To": "",
-            "Original +": "2", "Notes": "First note second line",
+            "Original +": "2", "Transcript Order(s)": "O+2", "Notes": "First note second line",
             "Initial QC completed": "Yes", "Initial QC by": "Becca",
             "30(b)(6)": "NO", "Videotaped": "NO", "Interpreter": "NO", "Cross-Depo": "NO",
             "Picture-in-Picture": "YES", "Depo Summary (Dec 2023 / May 2025 sheets)": "",
@@ -717,6 +717,16 @@ class PinkSheetMode(unittest.TestCase):
         rows, _ = self.run_pink()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["Needs a look"], "")
+
+    def test_original_plus_in_the_portals_wording(self):
+        order = reader.pink_sheet.transcript_order
+        for typed, expected in [("2", ("O+2", "")), (" 5 ", ("O+5", "")), ("O+3", ("O+3", "")),
+                                ("o + 1", ("O+1", "")), ("+4", ("O+4", "")), ("0", ("None", "")),
+                                ("None", ("None", "")), ("", ("", ""))]:
+            self.assertEqual(order(typed), expected, typed)
+        self.assertEqual(order("6"), ("", "Original + is 6; the portal's Transcript Order(s) goes up to O+5"))
+        self.assertEqual(order("two"), ("", 'Original + "two" is not a number of copies'))
+        self.assertEqual(order("2 + CD"), ("", 'Original + "2 + CD" is not a number of copies'))
 
     def test_how_filled_in_is_counted(self):
         count = reader.pink_sheet.filled_count
