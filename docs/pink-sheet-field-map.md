@@ -64,21 +64,21 @@ recommended not to import; **Unusable** = cannot be read reliably (section 2).
 | Printed label | Field | Type | Versions | Proposed portal home | Status |
 | --- | --- | --- | --- | --- | --- |
 | Job Number | Job Number | Text | all | Find the existing job by `jobs.job_no`. Never creates a job. | Key |
-| Original + | Text3 | Text | all | Unclear: who receives the original plus a copy? Possibly `witnesses.send_original_to` | Decide |
+| Original + | Text3 | Text | all | Transcript Order(s), as O+N (section 6, decided 2026-11-18/21) | Wanted |
 | Notes (2 lines) | Text4, Text6 | Text | all | `production_state.remarks`, or the job's notes | Decide |
 | Witness 1–6 | Text12, Text11, Text10, Text9, Text8, Text7 (top to bottom) | Text | all | Match to the job's existing `witnesses` rows by name. Never creates a witness. | Key |
 | R&S for witness 1–6 | R&S.0 – R&S.5 | Dropdown: Reserved - Print Witness Copy / Reserved - Via E-Mail Only / Reserved - Letter Only / Waived | all | `witnesses.read_sign` (reserved or waived) and `witnesses.sig_instructions` (how) | Proposed |
-| **R&S Sent To** (the box beside each witness's R&S) | E-Mail, Text15.0 – Text15.4 | Text: a person's name | all | Who the R&S was sent to (DevinAnn, 2026-11-13). Portal home to confirm | Wanted |
+| **R&S Sent To** (the box beside each witness's R&S) | E-Mail, Text15.0 – Text15.4 | Text: a person's name | all | Who the R&S was sent to (DevinAnn, 2026-11-13). Report only, not mapped (DevinAnn, 2026-11-18) | Report only |
 
 ### Page 1: Initial QC
 
 | Printed label | Field | Type | Versions | Proposed portal home | Status |
 | --- | --- | --- | --- | --- | --- |
-| INITIAL QC COMPLETED BY | Dropdown17.0 (+ tick Check Box18.0.0) | Staff first name | all | Initial QC assignee (`initial_qc_assignee_user_id` + name), through an approved name→user table | Proposed |
-| 30(b)(6) | Dropdown7 | YES/NO | all | `witnesses.thirty_b6` | Proposed |
-| Videotaped | Dropdown8 | YES/NO | all | Job or witness flag: portal home to confirm | Decide |
-| Interpreter | Dropdown1.1 | YES/NO | all | Job or witness flag: portal home to confirm | Decide |
-| Cross-Depo | Dropdown1.2 | YES/NO | all | The portal's Cross-depo toggle (Production state) | Proposed |
+| INITIAL QC COMPLETED BY | Dropdown17.0 (+ tick Check Box18.0.0) | Staff first name | all | Intake's "Initial QC completed by" (section 6, decided 2026-11-21), through the approved name table | Wanted |
+| 30(b)(6) | Dropdown7 | YES/NO | all | Witness Toggle "30(b)(6)" (`thirtyB6`); per-witness question open | Wanted |
+| Videotaped | Dropdown8 | YES/NO | all | Witness Toggle "Videotaped" (DevinAnn, 2026-11-21); per-witness question open | Wanted |
+| Interpreter | Dropdown1.1 | YES/NO | all | Witness Toggle "Interpreter" (DevinAnn, 2026-11-21); per-witness question open | Wanted |
+| Cross-Depo | Dropdown1.2 | YES/NO | all | Witness Toggle "Cross-depo" (surcharge "Cross Depo"); per-witness question open | Proposed |
 | Depo Summary (2023, May 2025) / Picture-in-Picture (Oct 2025) | Dropdown9 | YES/NO | all, **meaning changes** | Read by version (section 2, item 3) | Decide |
 | 13 checklist rows (Check Case Style … Deposition summary) | Check Box18.0.1, 18.1 – 18.11, Check Box7 | Ticks | rows differ by version | Initial QC checklist in Production state | Skip (proposed) |
 | Verify order details (RB Invoices, Production/Billing Notes, Firm/Contact warnings, Billing Sheet, End of ASCII) | Check Box1, 2, 4, 5, plus Check Box3 (May 2025) or Check Box6 (Oct 2025) | Ticks | May 2025, Oct 2025 only; the same box name sits on a different row in each | — | Skip (proposed) |
@@ -87,7 +87,7 @@ recommended not to import; **Unusable** = cannot be read reliably (section 2).
 
 | Printed label | Field | Type | Versions | Proposed portal home | Status |
 | --- | --- | --- | --- | --- | --- |
-| PRODUCTION COMPLETED BY | Dropdown4 (+ tick Check Box19.0) | Staff first name | all | The portal has no Production-stage person column (Initial QC, Final QC and Billing only) | Decide |
+| PRODUCTION COMPLETED BY ("Printed by") | Dropdown4 (+ tick Check Box19.0) | Staff first name | all | Intake's "Printing completed by" (section 6, decided 2026-11-21) | Wanted |
 | Originals: Printed Original w/ Full-Mini-Word Printed Copy (Standard Package) · w/ Electronic Copy · w/ Printed Full-Size Copy · w/ Printed Mini-Size Copy · No Printed Original w/ Electronic Copy | Check Box19.1.0, 19.1.1.0, 19.1.1.1.0, 19.1.1.1.1.0, 19.1.1.1.1.1.0 | Ticks | all | What the original's order was: Production's fulfillment record | Decide |
 | Line under each Originals choice | Text21.0, 21.1.0, 21.1.1.0, 21.1.1.1, 21.1.1.2 | Text | all | Unclear: for whom, or how many? | Decide |
 | Media for "w/ Electronic Copy" and "No Printed Original" | Dropdown20.0, Dropdown20.1 | E-Mail / USB / N/A (CD on older versions) | all | Fulfillment record | Decide |
@@ -210,37 +210,62 @@ situation where multiple are truly filled out, I don't want it to guess."*
   Turn In › Order Overview; choices None, O+1 – O+5; saved in the job's
   production record as `orderOverview.transcript`). Pinky now adds a
   **Transcript Order(s)** column beside Original +: "2" becomes "O+2", "0"
-  becomes "None". Anything else, or more than O+5, is left blank and flagged
-  in "Needs a look", never guessed.
-- **R&S Sent To, Videotaped and Interpreter are NOT mapped to the portal**, but
-  stay in pink-sheets.csv / the Excel workbook.
+  becomes "None". Anything that is not a number of copies is left blank and
+  flagged in "Needs a look", never guessed.
+  - *Corrected 2026-11-21:* O+6 and above are **not** a limit (*"If there is
+    an O+6 or more, we can add those as options"*). Pinky passes any number
+    through as O+N. Portal follow-up: before an import, add O+6 and up to the
+    Transcript Order(s) choices for any number the sheets actually contain.
+- **R&S Sent To is NOT mapped to the portal**, but stays in pink-sheets.csv /
+  the Excel workbook.
+  - *Corrected 2026-11-21:* **Videotaped and Interpreter ARE mapped, to the
+    Witness Toggles of the same name, just like 30(b)(6)** (*"Videotaped and
+    Interpreter should trigger the Witness Toggles of the same name, just like
+    30(b)(6)"*). In the portal: 30(b)(6) is the witness's `thirtyB6`;
+    Videotaped and Interpreter are the witness's `surcharges` "Videotaped" and
+    "Interpreter"; Cross-Depo is "Cross Depo" beside them. They stay in the
+    report too.
+  - Open: the Pink Sheet holds ONE value per sheet, while each Witness Toggle
+    belongs to ONE witness. See "Open questions" below.
 - **The "Deposition summary is included in the transcript bundle" tick box is
   ignored.** It was never output; no change to the form is needed.
 - **Pink Sheets only.** Word forms are not read; rows stay in folder order.
 
-### Proposed, waiting for DevinAnn: who did Checking and who did Printing
+### Intake: who did Initial QC and who did Printing
+
+*Rewritten 2026-11-21. The first draft called the halves "Checking" and
+Printing; DevinAnn: "It's Initial QC and Printing that make up Intake."*
 
 The portal's **Intake** is the old Initial QC and Printing sections combined.
 Today it holds ONE assignee and ONE completion time
 (`production_state.initial_qc_assignee` / `_user_id` /
 `initial_qc_completed_at`), and its checklist ticks do not record who ticked
-them. So the portal cannot yet say that one person checked and another
-printed. DevinAnn: the portal must keep both names, never drop or merge one.
+them, so it cannot say that one person did Initial QC and another did
+Printing. DevinAnn: the portal must keep both names, never drop or merge one.
 
-Proposal: give each half of Intake its own "completed by":
+Decided (DevinAnn, 2026-11-21: *"we will need a value for each Initial QC and
+Printing. When the values indicate the same user, the portal can simplify
+from User A completed Initial QC and User A completed Printing, to User A
+completed Intake ... The values will be separated for most RB-derived jobs,
+while they will be combined by default once the portal is live."*):
 
-- **Checking completed by** and **Printing completed by**, each holding the
-  person's user number (where they have one), their name as written, and when.
-- Live use: stamped when that half's last required box is ticked (Checking:
-  Review QC Report … Verify Exhibit Parenthetical; Printing: Zip / Upload /
-  Print & Bind), and each written to the job's Audit Trail ("Intake: printing
-  completed by …").
-- Import: Pink Sheet "Initial QC by" fills Checking, "Printed by" fills
-  Printing, "Final QC by" fills Final QC.
-- Where: inside the job's production record, the way R&S verification already
-  keeps `{by, at}` — no database change. If the Job Tracking Log or reports
-  need to sort and filter by these people, two new columns beside the existing
-  Initial QC ones are the alternative; that is a migration and needs approval.
+- **Two values on every job: Initial QC completed by, and Printing completed
+  by**, each the person's user number where they have one, their name, and
+  when.
+- **When both name the same person, the portal shows one line:** "User A
+  completed Intake". When they differ, it shows both: "User A completed
+  Initial QC", "User B completed Printing". Both values are always stored.
+- **Defaults:** for RB-derived jobs (the Pink Sheet import), the two values
+  are filled separately: Pink Sheet "Initial QC by" fills Initial QC, and
+  "Printed by" fills Printing. Once the portal is live, completing Intake
+  sets both to the same person by default.
+- "Final QC by" fills Final QC.
+
+Still open: where the two values are stored. Recommended: inside the job's
+production record, the way R&S verification already keeps `{by, at}` (no
+database change). The alternative is two new database columns beside the
+Initial QC ones, easier to sort and filter on the Job Tracking Log but a
+migration needing approval.
 
 ### Proposed: the staff name table
 
@@ -270,3 +295,13 @@ needed for the portal. DevinAnn approves the table before any import.
   entries in the uploader's name. Going through the portal is also what keeps
   it from being a data repair (AGENTS.md: writes from outside the application
   are Elizabeth's).
+
+### Open questions (2026-11-21)
+
+1. **One flag per sheet, toggles per witness.** The Pink Sheet's 30(b)(6),
+   Videotaped, Interpreter and Cross-Depo are one value for the whole sheet;
+   the portal's Witness Toggles are set witness by witness. With one witness
+   listed this is exact. With several, should the sheet's YES switch the
+   toggle on for every witness on the sheet, or should those sheets be
+   flagged for a person to choose the witness?
+2. **Where Intake's two values are stored** (above).

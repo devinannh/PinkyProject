@@ -38,15 +38,17 @@ VERSIONS = {
 }
 
 # "Original +" is the portal's Transcript Order(s) (Job Tracking Log > Turn In >
-# Order Overview), whose choices are None and O+1 to O+5 (DevinAnn,
-# 2026-11-13; portal: TRANSCRIPT_ORDER_CHOICES, saved as orderOverview.transcript).
-TRANSCRIPT_ORDER_MAX = 5
+# Order Overview; portal: TRANSCRIPT_ORDER_CHOICES, saved as
+# orderOverview.transcript). The portal lists None and O+1 to O+5 today, but
+# that is not a limit: "If there is an O+6 or more, we can add those as
+# options" (DevinAnn, 2026-11-21). So any number passes through as O+N.
 _ORIGINAL_PLUS = re.compile(r"(?:o\s*)?\+?\s*(\d{1,3})", re.IGNORECASE)
 
 
 def transcript_order(original_plus: str) -> tuple[str, str]:
-    """'2' -> ('O+2', ''); '0' or 'None' -> ('None', ''); blank -> ('', '').
-    Anything else is left blank with the reason, never guessed."""
+    """'2' -> ('O+2', ''); '7' -> ('O+7', ''); '0' or 'None' -> ('None', '');
+    blank -> ('', ''). Anything that is not a number of copies is left blank
+    with the reason, never guessed."""
     text = (original_plus or "").strip()
     if not text:
         return "", ""
@@ -58,8 +60,6 @@ def transcript_order(original_plus: str) -> tuple[str, str]:
     n = int(m.group(1))
     if n == 0:
         return "None", ""
-    if n > TRANSCRIPT_ORDER_MAX:
-        return "", f"Original + is {n}; the portal's Transcript Order(s) goes up to O+{TRANSCRIPT_ORDER_MAX}"
     return f"O+{n}", ""
 
 

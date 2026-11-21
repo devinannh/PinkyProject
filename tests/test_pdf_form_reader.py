@@ -724,7 +724,9 @@ class PinkSheetMode(unittest.TestCase):
                                 ("o + 1", ("O+1", "")), ("+4", ("O+4", "")), ("0", ("None", "")),
                                 ("None", ("None", "")), ("", ("", ""))]:
             self.assertEqual(order(typed), expected, typed)
-        self.assertEqual(order("6"), ("", "Original + is 6; the portal's Transcript Order(s) goes up to O+5"))
+        # O+6 and above are not a limit: the portal can add those choices (DevinAnn, 2026-11-21)
+        self.assertEqual(order("6"), ("O+6", ""))
+        self.assertEqual(order("12"), ("O+12", ""))
         self.assertEqual(order("two"), ("", 'Original + "two" is not a number of copies'))
         self.assertEqual(order("2 + CD"), ("", 'Original + "2 + CD" is not a number of copies'))
 
