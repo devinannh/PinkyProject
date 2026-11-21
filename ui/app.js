@@ -176,6 +176,8 @@ function drawDone(st) {
         tile(c.witnesses, "witnesses listed"), tile(c.problems, "needing a look (files.csv)", c.problems))
     : el("div", { class: "tiles" }, tile(c.pdfs, "PDFs read"), tile(c.with_fields, "with form fields"),
         tile(c.fields, "form fields listed"), tile(c.problems, "needing a look (files.csv)", c.problems)));
+  if (pink && c.toggle_reviews) parts.push(el("ul", { class: "lines" }, el("li", {},
+    "Sheets with a Witness Toggle to review (a YES with more than one witness; see the Summary sheet)", el("b", {}, c.toggle_reviews))));
   if (pink && c.set_aside) parts.push(el("ul", { class: "lines" }, el("li", {},
     "Blank Pink Sheets not used: a filled-in one in the same job folder was used (see files.csv)", el("b", {}, c.set_aside))));
   if (st.types && st.types.length) parts.push(el("ul", { class: "lines" }, el("li", {},
@@ -186,6 +188,7 @@ function drawDone(st) {
     el("b", {}, pink ? "pink-sheets.csv" : "fields.csv"), pink ? " one row per job" : " one row per form field", el("br"),
     el("b", {}, "files.csv"), " one row per file found, and any problems", el("br"),
     el("b", {}, "pinky-results.xlsx"), " the same tables in one Excel workbook", el("br"),
+    ...(pink ? [el("b", {}, "summary.csv"), " first-run counts: toggles to review, Transcript Order(s), staff names", el("br")] : []),
     el("b", {}, "settings-used.txt"), " the choices that made these results"));
   parts.push(el("div", { class: "privacy" }, "These files hold real client data. Keep them on this computer and delete them when done."));
   body.replaceChildren(el("div", { style: "display:flex;flex-direction:column;gap:10px" }, ...parts));

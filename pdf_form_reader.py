@@ -435,9 +435,11 @@ class Report:
         # (see _settle_pink), so its rows are written when the run ends.
         self._stream = form != "pink"
         self._pink: list[dict] = []
+        # Pink Sheet mode's first-run counts (summary.csv / the Summary sheet).
+        self._summary_rows: list[list] = [list(SUMMARY_COLUMNS)]
         self.counts = {
             "pdfs": 0, "with_fields": 0, "fields": 0, "problems": 0,
-            "other_found": 0, "sheets": 0, "witnesses": 0, "set_aside": 0,
+            "other_found": 0, "sheets": 0, "witnesses": 0, "set_aside": 0, "toggle_reviews": 0,
         }
 
     def _main_row(self, values: list):
@@ -491,10 +493,12 @@ class Report:
             return
         sheet_row = pink_sheet.row(by_name, result.page_one_text)
         witnesses = sheet_row.pop("_witnesses")
+        toggle_reviews = sheet_row.pop("_toggle_reviews")
         self._file_row([year, month, job, display_name(shown_path), file_type(shown_path).upper(), matched, "Pink Sheet read",
                         len(result.fields), sum(1 for f in result.fields if f.filled), sheet_row["Needs a look"]])
         out = {"Year": year, "Month": month, "Job folder": job, "File": display_name(shown_path), **sheet_row}
         self._pink.append({"key": (year, month, job), "row": out, "witnesses": witnesses,
+                           "toggle_reviews": toggle_reviews,
                            "file_idx": len(self._file_rows) - 1, "name": display_name(shown_path)})
 
     def skip(self, parts: list[str], shown_path: str, reason: str):
@@ -573,6 +577,39 @@ class Report:
         self.counts["problems"] += sum(1 for rec in used if rec["row"]["Needs a look"])
         for rec in used:
             self._main_rows.append([rec["row"].get(c, "") for c in pink_sheet.COLUMNS])
+        self._summarise_pink(used)
+
+    def _summarise_pink(self, used: list[dict]):
+        """The counts DevinAnn asked to see from the first run (2026-11-21):
+        how often a Witness Toggle needs review, which Transcript Order(s)
+        values occur, and every "completed by" name, for the staff-name
+        lookup. Counts only; no client data."""
+        from collections import Counter
+
+        add = self._summary_rows.append
+        reviewed = [rec for rec in used if rec["toggle_reviews"]]
+        self.counts["toggle_reviews"] = len(reviewed)
+        add(["Witness Toggles", "Sheets read", len(used)])
+        add(["Witness Toggles", "Sheets with a toggle to review (a YES with more than one witness)", len(reviewed)])
+        per_toggle = Counter(t for rec in reviewed for t in rec["toggle_reviews"])
+        for toggle in pink_sheet.WITNESS_TOGGLE_COLUMNS:
+            add(["Witness Toggles", f"{toggle} YES to review", per_toggle.get(toggle, 0)])
+
+        orders = Counter(str(rec["row"].get("Transcript Order(s)", "")) or "(blank)" for rec in used)
+
+        def order_key(item):
+            value = item[0]
+            if value.startswith("O+") and value[2:].isdigit():
+                return (1, int(value[2:]))
+            return (0, 0) if value == "None" else (2, 0)
+
+        for value, count in sorted(orders.items(), key=order_key):
+            add(["Transcript Order(s)", value, count])
+
+        for column in pink_sheet.STAFF_NAME_COLUMNS:
+            names = Counter(" ".join(str(rec["row"].get(column, "")).split()) or "(blank)" for rec in used)
+            for name, count in sorted(names.items(), key=lambda item: (item[0] == "(blank)", item[0].casefold())):
+                add([column, name, count])
 
     def close(self):
         if self.form == "pink":
@@ -584,10 +621,17 @@ class Report:
                 self._files_csv.writerow([_safe_cell(v) for v in values])
         self._main_fh.close()
         self._files_fh.close()
-        write_workbook(self.out_dir / WORKBOOK_NAME,
-                       [(self._main_sheet, self._main_rows), ("Files", self._file_rows)])
+        sheets = [(self._main_sheet, self._main_rows), ("Files", self._file_rows)]
+        if self.form == "pink":
+            with open(self.out_dir / "summary.csv", "w", newline="", encoding="utf-8-sig") as fh:
+                writer = csv.writer(fh)
+                for values in self._summary_rows:
+                    writer.writerow([_safe_cell(v) for v in values])
+            sheets.append(("Summary", self._summary_rows))
+        write_workbook(self.out_dir / WORKBOOK_NAME, sheets)
 
 
+SUMMARY_COLUMNS = ["Count of", "Value", "Sheets"]
 _RESULT_COL = FILE_COLUMNS.index("Result")
 _NOTE_COL = FILE_COLUMNS.index("Note")
 
@@ -1023,6 +1067,9 @@ def summary_lines(report: Report, settings: Settings) -> list[str]:
             f"   witnesses listed: {c['witnesses']}",
             f"   needing a look: {c['problems']}  (see files.csv)",
         ]
+        if c["toggle_reviews"]:
+            lines.append(f"Sheets with a Witness Toggle to review (a YES with more than one witness): "
+                         f"{c['toggle_reviews']}  (see summary.csv)")
         if c["set_aside"]:
             lines.append(f"Blank Pink Sheets not used (a filled-in one in the same job folder was used): "
                          f"{c['set_aside']}  (see files.csv)")

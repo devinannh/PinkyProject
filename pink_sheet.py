@@ -130,6 +130,16 @@ def _column_names() -> list[str]:
 
 WITNESS_LETTERS = "ABCDEF"
 
+# The Pink Sheet answers that switch on the portal Witness Toggle of the same
+# name: 30(b)(6), Videotaped and Interpreter (DevinAnn, 2026-11-21: "just like
+# 30(b)(6)"), and Cross-Depo, which the portal also has as a Witness Toggle
+# (mapping proposed, not yet confirmed). Picture-in-Picture has no Witness
+# Toggle in the portal, so it stays in the spreadsheet only.
+WITNESS_TOGGLE_COLUMNS = ["30(b)(6)", "Videotaped", "Interpreter", "Cross-Depo"]
+
+# The "completed by" names the staff-name lookup has to cover.
+STAFF_NAME_COLUMNS = ["Initial QC by", "Printed by", "Final QC by"]
+
 WITNESS_COLUMNS = [
     col
     for letter in WITNESS_LETTERS
@@ -222,6 +232,17 @@ def row(fields: dict, page_one_text: str, page_two_job_number: str | None = None
         row[f"Witness {letter} R&S Sent To"] = sent
     if not listed:
         problems.append("No witness listed")
+    # Witness Toggles (DevinAnn, 2026-11-21): the sheet holds ONE answer for the
+    # whole job, the portal's toggles are per witness. With one witness listed a
+    # YES belongs to that witness. With several, only the affected toggle is
+    # flagged for review (the rest of the job still imports) and the reviewer
+    # chooses one, several or all of the listed witnesses in the portal.
+    reviews = []
+    if listed > 1:
+        for col in WITNESS_TOGGLE_COLUMNS:
+            if str(sheet.get(col, "")).strip().upper() == "YES":
+                reviews.append(col)
+                problems.append(f"{col} YES with {listed} witnesses listed: choose the witness(es) in the portal")
     order, why = transcript_order(sheet.get("Original +", ""))
     sheet["Transcript Order(s)"] = order
     if why:
@@ -229,6 +250,7 @@ def row(fields: dict, page_one_text: str, page_two_job_number: str | None = None
     row.update(sheet)
     row["Needs a look"] = "; ".join(problems)
     row["_witnesses"] = listed      # for the count; not a column
+    row["_toggle_reviews"] = reviews  # for the first-run count; not a column
     return row
 
 

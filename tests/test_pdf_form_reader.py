@@ -447,7 +447,8 @@ def blank_pink_sheet_pdf() -> bytes:
 
 
 def pink_sheet_pdf(revised="October 13, 2025", witnesses=(("Pat Example", "Waived", "Sam Counsel"),),
-                   job="999001", page_two_job=None, dd9="YES", extra_rs_row=False, blank=False) -> bytes:
+                   job="999001", page_two_job=None, dd9="YES", extra_rs_row=False, blank=False,
+                   flags=None, original_plus="2", qc_by="Avery Test", printed_by="Morgan Test") -> bytes:
     """A MADE-UP Pink Sheet: the real form's field names, invented values.
     Also fills a checklist tick and Billing fields with sentinel values that
     must never appear in Pinky's output."""
@@ -478,7 +479,7 @@ def pink_sheet_pdf(revised="October 13, 2025", witnesses=(("Pat Example", "Waive
 
     c.drawString(300, 30, f"Revised {revised}")
     text("Job Number", job)
-    text("Text3", "2")
+    text("Text3", original_plus)
     text("Text4", "First note")
     text("Text6", "second line")
     names = ["Text12", "Text11", "Text10", "Text9", "Text8", "Text7"]
@@ -489,12 +490,13 @@ def pink_sheet_pdf(revised="October 13, 2025", witnesses=(("Pat Example", "Waive
         drop(f"R&S.{i}", rs_choices, w[1] or rs_choices[0])
         text(sent[i], w[2] if i < len(witnesses) or not extra_rs_row else "Orphan Person")
     tick("Check Box18.0.0", True)
-    drop("Dropdown17.0", ["Becca", "Rochelle"], "Becca")
+    drop("Dropdown17.0", ["Avery Test", "Jordan Test"], qc_by)
+    flags = flags or {}
     for n in ("Dropdown7", "Dropdown8", "Dropdown1.1", "Dropdown1.2"):
-        drop(n, yes_no, "NO")
+        drop(n, yes_no, flags.get(n, "NO"))
     drop("Dropdown9", yes_no, dd9)
     tick("Check Box19.0", True)
-    drop("Dropdown4", ["DevinAnn", "Becca"], "DevinAnn")
+    drop("Dropdown4", ["Morgan Test", "Avery Test"], printed_by)
     tick("Check Box19.1.1.1.1.1.0", True)
     text("Text21.1.1.2", "made-up line")
     drop("Dropdown20.1", ["E-Mail", "USB", "N/A"], "E-Mail")
@@ -511,7 +513,7 @@ def pink_sheet_pdf(revised="October 13, 2025", witnesses=(("Pat Example", "Waive
     c.drawString(60, 800, "page two")
     form.textfield(name="Text28", value=page_two_job if page_two_job is not None else job,
                    x=60, y=760, width=200, height=16)
-    form.choice(name="Dropdown6", options=["Rochelle", "Becca"], value="Rochelle",
+    form.choice(name="Dropdown6", options=["Jordan Test", "Avery Test"], value="Jordan Test",
                 x=60, y=730, width=200, height=16, fieldFlags="combo")
     c.showPage()
     c.save()
@@ -559,10 +561,10 @@ class PinkSheetMode(unittest.TestCase):
             "Witness B": "Lee Sample", "Witness B R&S": "Waived", "Witness B R&S Sent To": "",
             "Witness C": "", "Witness F R&S Sent To": "",
             "Original +": "2", "Transcript Order(s)": "O+2", "Notes": "First note second line",
-            "Initial QC completed": "Yes", "Initial QC by": "Becca",
+            "Initial QC completed": "Yes", "Initial QC by": "Avery Test",
             "30(b)(6)": "NO", "Videotaped": "NO", "Interpreter": "NO", "Cross-Depo": "NO",
             "Picture-in-Picture": "YES", "Depo Summary (Dec 2023 / May 2025 sheets)": "",
-            "Production completed": "Yes", "Printed by": "DevinAnn",
+            "Production completed": "Yes", "Printed by": "Morgan Test",
             "Year": "2026", "File": "Pink Sheet.pdf",
             "Original: No Printed Original w/ Electronic Copy": "Yes",
             "Original: No Printed Original w/ Electronic Copy - line": "made-up line",
@@ -570,7 +572,7 @@ class PinkSheetMode(unittest.TestCase):
             "Original: Printed w/ Full-Mini-Word Printed Copy (Standard Package)": "No",
             "Copies: E-Mail Only": "Yes", "Copies: E-Mail Only - quantity": "1",
             "USB": "No", "USB Qty": "",
-            "Final QC by": "Rochelle", "Needs a look": "",
+            "Final QC by": "Jordan Test", "Needs a look": "",
         }
         for col, value in expected.items():
             self.assertEqual(row[col], value, col)
@@ -598,7 +600,7 @@ class PinkSheetMode(unittest.TestCase):
         self.put("Job 2", pink_sheet_pdf(job="999002", witnesses=(("Kim Witness", "Waived", ""),)))
         rows, _ = self.run_pink()
         wb = load_workbook(self.out / "pinky-results.xlsx")
-        self.assertEqual(wb.sheetnames, ["Pink Sheets", "Files"])
+        self.assertEqual(wb.sheetnames, ["Pink Sheets", "Files", "Summary"])
         ws = wb["Pink Sheets"]
         header = [c.value for c in ws[1]]
         self.assertEqual(header, reader.pink_sheet.COLUMNS)
@@ -729,6 +731,46 @@ class PinkSheetMode(unittest.TestCase):
         self.assertEqual(order("12"), ("O+12", ""))
         self.assertEqual(order("two"), ("", 'Original + "two" is not a number of copies'))
         self.assertEqual(order("2 + CD"), ("", 'Original + "2 + CD" is not a number of copies'))
+
+    def test_a_toggle_yes_on_a_one_witness_sheet_needs_no_review(self):
+        self.put("Job 1", pink_sheet_pdf(flags={"Dropdown8": "YES"}))
+        rows, _ = self.run_pink()
+        self.assertEqual((rows[0]["Videotaped"], rows[0]["Needs a look"]), ("YES", ""))
+
+    def test_a_toggle_yes_on_a_several_witness_sheet_flags_only_that_toggle(self):
+        two = (("Pat Example", "Waived", ""), ("Lee Sample", "Waived", ""))
+        self.put("Job 1", pink_sheet_pdf(witnesses=two, flags={"Dropdown8": "YES", "Dropdown7": "YES"}))
+        self.put("Job 2", pink_sheet_pdf(witnesses=two, job="999002"))         # all NO: nothing to review
+        rows, _ = self.run_pink()
+        notes = {r["Job folder"]: r["Needs a look"] for r in rows}
+        self.assertIn("Videotaped YES with 2 witnesses listed: choose the witness(es) in the portal", notes["Job 1"])
+        self.assertIn("30(b)(6) YES with 2 witnesses listed", notes["Job 1"])
+        self.assertNotIn("Interpreter", notes["Job 1"])
+        self.assertEqual(notes["Job 2"], "")
+        # the YES stays in the spreadsheet
+        self.assertEqual(rows[0]["Videotaped"], "YES")
+
+    def test_first_run_summary(self):
+        two = (("Pat Example", "Waived", ""), ("Lee Sample", "Waived", ""))
+        self.put("Job 1", pink_sheet_pdf(witnesses=two, flags={"Dropdown1.1": "YES"}, original_plus="7"))
+        self.put("Job 2", pink_sheet_pdf(original_plus="2", qc_by="Jordan Test", job="999002"))
+        self.put("Job 3", pink_sheet_pdf(original_plus="2", job="999003"))
+        self.run_pink()
+        with open(self.out / "summary.csv", encoding="utf-8-sig") as fh:
+            summary = [(r["Count of"], r["Value"], r["Sheets"]) for r in csv.DictReader(fh)]
+        self.assertIn(("Witness Toggles", "Sheets read", "3"), summary)
+        self.assertIn(("Witness Toggles", "Sheets with a toggle to review (a YES with more than one witness)", "1"), summary)
+        self.assertIn(("Witness Toggles", "Interpreter YES to review", "1"), summary)
+        self.assertIn(("Witness Toggles", "Videotaped YES to review", "0"), summary)
+        orders = [(v, n) for k, v, n in summary if k == "Transcript Order(s)"]
+        self.assertEqual(orders, [("O+2", "2"), ("O+7", "1")])           # in number order
+        self.assertIn(("Initial QC by", "Avery Test", "2"), summary)
+        self.assertIn(("Initial QC by", "Jordan Test", "1"), summary)
+        self.assertIn(("Printed by", "Morgan Test", "3"), summary)
+        self.assertIn(("Final QC by", "Jordan Test", "3"), summary)
+        from openpyxl import load_workbook
+        ws = load_workbook(self.out / "pinky-results.xlsx")["Summary"]
+        self.assertEqual([c.value for c in ws[1]], ["Count of", "Value", "Sheets"])
 
     def test_how_filled_in_is_counted(self):
         count = reader.pink_sheet.filled_count
