@@ -67,7 +67,7 @@ recommended not to import; **Unusable** = cannot be read reliably (section 2).
 | Original + | Text3 | Text | all | Transcript Order(s), as O+N (section 6, decided 2026-11-18/21) | Wanted |
 | Notes (2 lines) | Text4, Text6 | Text | all | `production_state.remarks`, or the job's notes | Decide |
 | Witness 1–6 | Text12, Text11, Text10, Text9, Text8, Text7 (top to bottom) | Text | all | Match to the job's existing `witnesses` rows by name. Never creates a witness. | Key |
-| R&S for witness 1–6 | R&S.0 – R&S.5 | Dropdown: Reserved - Print Witness Copy / Reserved - Via E-Mail Only / Reserved - Letter Only / Waived | all | `witnesses.read_sign` (reserved or waived) and `witnesses.sig_instructions` (how) | Proposed |
+| R&S for witness 1–6 | R&S.0 – R&S.5 | Dropdown: Reserved - Print Witness Copy / Reserved - Via E-Mail Only / Reserved - Letter Only / Waived | all | **Reserved / Waived → the witness's `reserved` (Yes / No)**, saved through the portal's own witness edit so its answer-change rule applies (section 7). *Corrected 2026-11-21: the first draft put this in `read_sign`, which is the R&S To handling detail, not the answer.* The three "Reserved - …" methods are NOT mapped yet (section 7). | Wanted (Reserved/Waived) |
 | **R&S Sent To** (the box beside each witness's R&S) | E-Mail, Text15.0 – Text15.4 | Text: a person's name | all | Who the R&S was sent to (DevinAnn, 2026-11-13). Report only, not mapped (DevinAnn, 2026-11-18) | Report only |
 
 ### Page 1: Initial QC
@@ -267,36 +267,16 @@ database change). The alternative is two new database columns beside the
 Initial QC ones, easier to sort and filter on the Job Tracking Log but a
 migration needing approval.
 
-### Proposed: the staff name table
+### The staff name table
 
-Some "completed by" names have no portal user number, and may have no RB user
-number either. Proposal: one row per first name that appears on the sheets —
-*name on the sheet → full name → portal user (if any)*. Where there is no
-portal user, the import keeps **the name as written with no number**, never a
-guessed number. This matches how the portal already keeps lane assignees:
-the number first, the name beside it as a fallback. An RB user number is not
-needed for the portal. DevinAnn approves the table before any import.
+Superseded by section 7 (decided 2026-11-21).
 
-### Proposed: getting approved rows into the portal
+### Getting approved rows into the portal
 
-- **Where it saves:** the portal's own database (the job's production record
-  and its witnesses), never Netlify Blobs. Any holding step before "apply" is
-  a database table too.
-- **Reviewing in Pinky** (approve, edit, remove rows) keeps real data on the
-  reviewer's computer until it is approved.
-- **Two ways to hand over:** (a) Pinky sends the approved rows straight to the
-  portal, which means signing in to the portal from Pinky; (b) Pinky saves an
-  approved file, and a small portal Import page takes it, checks every row
-  again, shows what will change, and applies it on confirm. Both need the same
-  portal-side checks; (b) avoids building sign-in into Pinky while the
-  portal's hosting (and its sign-in) is due to change.
-- Either way the portal re-checks every row (the job exists by Job Number,
-  witnesses match, names are in the approved table) and writes Audit Trail
-  entries in the uploader's name. Going through the portal is also what keeps
-  it from being a data repair (AGENTS.md: writes from outside the application
-  are Elizabeth's).
+Superseded by section 7 (decided 2026-11-21): manual upload, in
+`docs/portal-upload-design.md`.
 
-### Open questions (2026-11-21)
+### Open questions (2026-11-21) — both answered later the same day, section 7
 
 1. **One flag per sheet, toggles per witness.** The Pink Sheet's 30(b)(6),
    Videotaped, Interpreter and Cross-Depo are one value for the whole sheet;
@@ -305,3 +285,125 @@ needed for the portal. DevinAnn approves the table before any import.
    toggle on for every witness on the sheet, or should those sheets be
    flagged for a person to choose the witness?
 2. **Where Intake's two values are stored** (above).
+
+## 7. Decided 2026-11-21 (DevinAnn)
+
+Recorded as given. Where a rule is my reading rather than her words, it says so.
+
+### Transcript Order(s)
+
+*"Keep exporting O+6, O+7, and higher values as entered. We'll use the first
+Pinky run to see which counts actually occur, then confirm which options the
+portal dropdown needs before the first import."*
+
+- Pinky exports O+N for any number (done 2026-11-21).
+- Pinky's **summary.csv / Summary sheet** lists every Transcript Order(s)
+  value found, with its count, in number order. That list decides which
+  options the portal dropdown gets before the first import.
+
+### Witness Toggles
+
+*"When the sheet lists one unambiguously matched witness, apply a YES to that
+witness's matching toggle. When it lists multiple witnesses, flag only the
+affected toggle for review and let the rest of the job import. The reviewer
+should be able to select one, several, or all of the listed witnesses for each
+YES. If we can't tell who it applies to, keep the YES in the spreadsheet and
+leave the portal toggle as it is. Please report how often this comes up on the
+first run so we can size the review process."*
+
+- **One witness listed, and it matches one portal witness:** a YES switches on
+  that witness's matching toggle.
+- **Several witnesses listed:** only that toggle is flagged; everything else on
+  the job still imports. In the portal upload preview the reviewer ticks one,
+  several or all of the listed witnesses for each YES.
+- **Who it applies to is unknown** (no witness ticked, or the witness does not
+  match): the YES stays in the spreadsheet and the portal toggle is left as it
+  is.
+- Pinky flags these in "Needs a look" and counts them in summary.csv (in
+  total and per toggle). Done 2026-11-21.
+- The toggles: 30(b)(6) → `thirtyB6`; Videotaped → `surcharges["Videotaped"]`;
+  Interpreter → `surcharges["Interpreter"]`. Cross-Depo → the "Cross-depo"
+  toggle (`surcharges["Cross Depo"]`) is **proposed, not confirmed**.
+  Picture-in-Picture has **no Witness Toggle** in the portal (it exists only as
+  the videographer task type "Videographer | Picture-in-Picture"), so it stays
+  in the spreadsheet.
+- *My reading, to confirm:* a NO never switches a toggle off. It is shown in
+  the preview but changes nothing.
+
+### Initial QC and Printing
+
+*"Use the existing `production_state` database table, where Intake and Final QC
+completion are already recorded. Store separate completion details for Initial
+QC and Printing, including the person's name, verified portal user number when
+available, and completion time when known. Keep those details separate from
+the lane assignee and the job's current stage. For imported RB jobs, take the
+names from Initial QC by and Printed by. For live portal work, completing
+Intake should record the same person for both by default. Show 'User A
+completed Intake' when the same person did both, and show the two completion
+lines when different people did them. Leave unknown historical completion
+dates blank."*
+
+- Stored in `production_state`, beside `initial_qc_completed_at` (Intake
+  complete) and `final_qc_completed_at`. Separate from the lane assignee
+  columns and from the job's stage. The column design is in
+  `docs/portal-upload-design.md`; it is a database change (a migration).
+- RB jobs: Initial QC ← "Initial QC by"; Printing ← "Printed by". Dates left
+  blank.
+- Live: completing Intake records the same person for both, by default.
+- Display: one line "User A completed Intake" when both name the same person;
+  otherwise two lines.
+
+### Staff-name lookup
+
+*"Please draft it from the Pink Sheet dropdowns for my review. Include the
+name as written, the identified person where known, and their verified portal
+user number if they have one. Flag ambiguous names and preserve the original
+name when there's no verified match."*
+
+- Drafted 2026-11-21: 13 names from the Initial QC, Production (Printed) and
+  Final QC dropdowns across the three versions. **The draft is not stored in
+  this repository**, because the repository is public and the draft holds staff
+  full names; it was sent to DevinAnn directly.
+- No portal user number could be verified from here (no access to the portal's
+  user list); every number is left blank until verified.
+- Rule: an ambiguous name is flagged; with no verified match the name is kept
+  exactly as written, with no number. A number is never guessed.
+- The first run's summary.csv lists every name actually on the sheets
+  (including any typed in that are not in the dropdowns), so the lookup can be
+  completed before the first import.
+
+### Manual upload
+
+*"Pinky should export the spreadsheet for staff to upload in the portal. The
+portal should preview proposed changes and flag duplicates, unmatched records,
+and conflicts before staff confirm. Save the approved values to the portal
+database. Uploading the same approved file again should produce no duplicate
+changes."*
+
+- Design: `docs/portal-upload-design.md`.
+
+### Read & Sign
+
+*"Please correct the field map so Reserved/Waived uses the portal's `reserved`
+value and follows the existing witness edit rules when an answer changes.
+Verify where Print Witness Copy, Via E-Mail Only, and Letter Only belong before
+mapping them. R&S Sent To stays in the spreadsheet only."*
+
+- **Reserved / Waived → `reserved`** (any "Reserved - …" = Yes; "Waived" = No;
+  blank = no change). Corrected in section 3.
+- **The existing witness edit rule** (DevinAnn, 2026-11-03): when a witness's
+  effective R&S answer changes, its R&S verification is withdrawn in the same
+  save and the withdrawal goes on the Job Number's audit trail; saving the same
+  answer withdraws nothing. The upload saves through the portal's own witness
+  edit, so this applies without a second copy of the rule.
+- **Where the three methods could belong** (checked in the portal code
+  2026-11-21; none is mapped until DevinAnn confirms):
+
+  | Pink Sheet | Portal home that fits | Confidence | Why |
+  | --- | --- | --- | --- |
+  | Reserved - Letter Only | R&S To = "Letter Only (No Copy Order)" | Medium | Same words; the portal's option means the R&S package goes to the witness by letter with no copy order. The Pink Sheet does not say whether a copy was ordered. |
+  | Reserved - Via E-Mail Only | The R&S packet's **Sent Via** (witness R&S details: Sent Via, R&S Date, Sent, Received, Return Due) = "E-Mail" | Medium | It describes how the R&S packet travels. R&S To has no e-mail choice. |
+  | Reserved - Print Witness Copy | No single home | Low | It is a printing instruction (Intake's "Print Witness Copy" button; the go-back reason "Witness copy not printed"). The R&S To choices that involve a copy are two ("Comp Copy to Witness Attorney (Copy Ordered)", "Comp Copy to Witness (Non-party Witness)") and the sheet does not say which. |
+
+  Until decided, the methods stay in the spreadsheet only.
+- **R&S Sent To:** spreadsheet only (unchanged).
